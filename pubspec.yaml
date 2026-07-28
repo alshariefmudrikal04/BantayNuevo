@@ -1,0 +1,57 @@
+name: bantay_nuevo
+description: >
+  Violence Response Application with GPS Tracking and Secure Evidence Storage
+  for Barangay Camino Nuevo. Three roles: resident, tanod, police.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase — see lib/firebase_options.dart for where to paste real config
+  firebase_core: ^3.15.2
+  firebase_auth: ^5.7.0
+  cloud_firestore: ^5.6.12
+  firebase_storage: ^12.4.10
+  firebase_messaging: ^15.2.10
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Location (Prompt 3 — report form GPS, Prompt 4 — SOS)
+  geolocator: ^13.0.1
+  google_maps_flutter: ^2.9.0
+
+  # Evidence upload (Prompt 3 — report form)
+  image_picker: ^1.1.2
+  file_picker: ^10.3.3
+
+  # Security screen (Prompt 7)
+  local_auth: ^2.3.0
+  flutter_secure_storage: ^9.2.2
+
+  # Offline SMS fallback (Prompt 4 — SOS screen, on-device path)
+  
+
+  # Connectivity check (Prompt 4 — online/offline branching)
+  connectivity_plus: ^6.0.5
+
+  # Dial hotline numbers (Prompt 8 — resources screen)
+  url_launcher: ^6.3.0
+
+  # Fonts — Space Grotesk / IBM Plex Sans / IBM Plex Mono (AGENTS.md §4)
+  google_fonts: ^6.2.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
