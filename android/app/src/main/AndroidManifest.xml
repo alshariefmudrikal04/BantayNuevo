@@ -5,10 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Needed by: telephony (Prompt 4 SOS offline path — sends SMS directly from
-         the resident's own SIM when there's no internet to reach Firestore) -->
-    <uses-permission android:name="android.permission.SEND_SMS" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- SEND_SMS/READ_PHONE_STATE removed along with the telephony package —
+         offline SOS now uses url_launcher's sms: scheme (opens the native
+         SMS app), which needs no special permissions. -->
 
     <!-- Needed by: image_picker (Prompt 3 report form evidence upload — photo/video) -->
     <uses-permission android:name="android.permission.CAMERA" />
