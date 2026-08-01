@@ -22,9 +22,9 @@ Future<void> main() async {
   // testing against the emulator and want to hit real Firestore again.
   // Requires `adb reverse tcp:8080 tcp:8080` if testing on a USB-connected
   // physical phone — see firebase/functions/README.md.
-  // if (kDebugMode) {
-  //   FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
-  // }
+  if (kDebugMode) {
+    FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
+  }
 
   runApp(const BantayNuevoApp());
 }
