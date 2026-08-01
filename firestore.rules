@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // TEMPORARY — permissive rules for local development/testing only.
+    // Replace with real per-role RBAC rules before any real deployment
+    // (residents read/write only their own reports & sos_alerts; tanod/police
+    // read all relevant to their role) — see AGENTS.md §8.
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -53,7 +54,12 @@ class _SosScreenState extends State<SosScreen> {
       }
       return await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException('GPS took too long to respond'),
       );
+    } on TimeoutException {
+      return null;
     } catch (_) {
       return null;
     }
@@ -71,12 +77,17 @@ class _SosScreenState extends State<SosScreen> {
 
     try {
       if (_online) {
-        await _sosRepository.createOnlineAlert(
-          residentId: widget.user.uid,
-          escalationTarget: escalationTarget,
-          lat: position.latitude,
-          lng: position.longitude,
-        );
+        await _sosRepository
+            .createOnlineAlert(
+              residentId: widget.user.uid,
+              escalationTarget: escalationTarget,
+              lat: position.latitude,
+              lng: position.longitude,
+            )
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => throw TimeoutException('Could not reach Firestore'),
+            );
         _showSnack('SOS sent — Tanod is being notified.');
       } else {
         await _sendOfflineSms(escalationTarget: escalationTarget, position: position);

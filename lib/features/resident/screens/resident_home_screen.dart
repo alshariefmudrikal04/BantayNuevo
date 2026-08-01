@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../models/report_model.dart';
+import '../../../models/notification_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -10,17 +11,37 @@ import '../../../core/widgets/section_title.dart';
 import '../../../core/widgets/list_item_tile.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/feature_stub_screen.dart';
+import '../../../core/services/fcm_service.dart';
 import 'report_form_screen.dart';
 import 'sos_screen.dart';
+import 'my_reports_screen.dart';
+import 'report_detail_screen.dart';
+import 'notifications_screen.dart';
 import '../data/report_repository.dart';
+import '../data/notification_repository.dart';
 import '../../auth/data/auth_repository.dart';
 
-class ResidentHomeScreen extends StatelessWidget {
-  ResidentHomeScreen({super.key, required this.user});
+class ResidentHomeScreen extends StatefulWidget {
+  const ResidentHomeScreen({super.key, required this.user});
 
   final UserModel user;
+
+  @override
+  State<ResidentHomeScreen> createState() => _ResidentHomeScreenState();
+}
+
+class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
   final _reportRepository = ReportRepository();
+  final _notificationRepository = NotificationRepository();
   final _authRepository = AuthRepository();
+
+  @override
+  void initState() {
+    super.initState();
+    // Registers this device's FCM token so onSosCreated/onReportCreated
+    // (Prompt 4.5) can actually push to it — free on Spark, no Blaze needed.
+    FcmService.registerToken(widget.user.uid);
+  }
 
   AppStatus _toAppStatus(ReportStatus s) => switch (s) {
         ReportStatus.pending => AppStatus.pending,
@@ -30,6 +51,7 @@ class ResidentHomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = widget.user;
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
@@ -42,6 +64,34 @@ class ResidentHomeScreen extends StatelessWidget {
           ],
         ),
         actions: [
+          StreamBuilder<List<NotificationModel>>(
+            stream: _notificationRepository.streamForUser(user.uid),
+            builder: (context, snapshot) {
+              final unread = (snapshot.data ?? []).where((n) => !n.read).length;
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_none, size: 22),
+                    tooltip: 'Notifications',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => NotificationsScreen(user: user)),
+                    ),
+                  ),
+                  if (unread > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(color: AppColors.urgent, shape: BoxShape.circle),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout, size: 20),
             tooltip: 'Log out',
@@ -102,7 +152,18 @@ class ResidentHomeScreen extends StatelessWidget {
             ],
           ),
 
-          const SectionTitle('Recent activity'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const SectionTitle('Recent activity', topPadding: 4),
+              TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => MyReportsScreen(user: user)),
+                ),
+                child: const Text('See all'),
+              ),
+            ],
+          ),
           StreamBuilder<List<ReportModel>>(
             stream: _reportRepository.streamRecentReports(user.uid, limit: 2),
             builder: (context, snapshot) {
@@ -132,7 +193,7 @@ class ResidentHomeScreen extends StatelessWidget {
                         trailing: StatusBadge(status: _toAppStatus(reports[i].status)),
                         isLast: i == reports.length - 1,
                         onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const FeatureStubScreen(title: 'Report detail')),
+                          MaterialPageRoute(builder: (_) => ReportDetailScreen(reportId: reports[i].id)),
                         ),
                       ),
                   ],
@@ -158,8 +219,10 @@ class ResidentHomeScreen extends StatelessWidget {
                 child: AppButton(
                   label: 'Evidence vault',
                   variant: AppButtonVariant.ghost,
+                  // Vault is per-report, so route through My Reports to pick
+                  // which case's evidence to view rather than guessing one.
                   onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const FeatureStubScreen(title: 'Evidence vault')),
+                    MaterialPageRoute(builder: (_) => MyReportsScreen(user: user)),
                   ),
                 ),
               ),

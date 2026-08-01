@@ -11,6 +11,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/section_title.dart';
 import '../../../core/widgets/feature_stub_screen.dart';
 import 'sos_screen.dart';
+import 'report_detail_screen.dart';
 import '../data/report_repository.dart';
 
 const _incidentTypes = [
@@ -118,7 +119,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
       _submitError = null;
     });
     try {
-      await _reportRepository.createReport(
+      final newReportId = await _reportRepository.createReport(
         residentId: widget.user.uid,
         type: _type,
         description: _descriptionController.text.trim(),
@@ -131,9 +132,8 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Report submitted.')),
       );
-      // report_detail_screen.dart doesn't exist until Prompt 5 — stub for now.
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const FeatureStubScreen(title: 'Report detail')),
+        MaterialPageRoute(builder: (_) => ReportDetailScreen(reportId: newReportId)),
       );
     } catch (e) {
       setState(() {

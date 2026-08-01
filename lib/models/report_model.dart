@@ -45,6 +45,18 @@ class EvidenceFile {
       };
 }
 
+class AccessLogEntry {
+  const AccessLogEntry({required this.who, this.when});
+
+  final String who;
+  final DateTime? when;
+
+  factory AccessLogEntry.fromMap(Map<String, dynamic> map) => AccessLogEntry(
+        who: map['who'] as String? ?? 'Unknown',
+        when: (map['when'] as Timestamp?)?.toDate(),
+      );
+}
+
 /// Matches the `reports/{reportId}` schema in AGENTS.md §5.
 class ReportModel {
   const ReportModel({
@@ -57,6 +69,7 @@ class ReportModel {
     this.lat,
     this.lng,
     this.evidenceFiles = const [],
+    this.accessLog = const [],
     this.assignedTanodId,
     this.createdAt,
   });
@@ -70,6 +83,7 @@ class ReportModel {
   final double? lat;
   final double? lng;
   final List<EvidenceFile> evidenceFiles;
+  final List<AccessLogEntry> accessLog;
   final String? assignedTanodId;
   final DateTime? createdAt;
 
@@ -86,6 +100,9 @@ class ReportModel {
       lng: (location?['lng'] as num?)?.toDouble(),
       evidenceFiles: ((data['evidenceFiles'] as List?) ?? [])
           .map((e) => EvidenceFile.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      accessLog: ((data['accessLog'] as List?) ?? [])
+          .map((e) => AccessLogEntry.fromMap(Map<String, dynamic>.from(e as Map)))
           .toList(),
       assignedTanodId: data['assignedTanodId'] as String?,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),

@@ -45,6 +45,21 @@ class ReportRepository {
         .map((snap) => snap.docs.map((d) => ReportModel.fromFirestore(d.data(), d.id)).toList());
   }
 
+  /// Live stream of a single report — used by report_detail_screen.dart and
+  /// evidence_vault_screen.dart (Prompt 5), so status/access-log updates from
+  /// a tanod show up in real time without a manual refresh.
+  Stream<ReportModel> streamReport(String reportId) {
+    return _reports.doc(reportId).snapshots().map((d) => ReportModel.fromFirestore(d.data()!, d.id));
+  }
+
+  /// Looks up a user's display name by uid — used by report_detail_screen.dart
+  /// to show the assigned tanod's name instead of just their id.
+  Future<String?> fetchUserName(String uid) async {
+    final doc = await _firestore.collection('users').doc(uid).get();
+    if (!doc.exists) return null;
+    return doc.data()?['name'] as String?;
+  }
+
   /// Creates a new report doc (status defaults to "pending") and uploads any
   /// attached evidence to Storage under reports/{reportId}/evidence/ first,
   /// storing the resulting download URLs in evidenceFiles — per AGENTS.md §5.
