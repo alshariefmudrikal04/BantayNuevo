@@ -17,6 +17,7 @@ import 'sos_screen.dart';
 import 'my_reports_screen.dart';
 import 'report_detail_screen.dart';
 import 'notifications_screen.dart';
+import 'profile/profile_screen.dart';
 import '../data/report_repository.dart';
 import '../data/notification_repository.dart';
 import '../../auth/data/auth_repository.dart';
@@ -102,28 +103,35 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          AppCard(
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: AppColors.tealLight,
-                  child: Text(
-                    user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-                    style: AppTypography.display(fontSize: 15, color: AppColors.teal),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => ProfileScreen(user: user)),
+            ),
+            child: AppCard(
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: AppColors.tealLight,
+                    child: Text(
+                      user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                      style: AppTypography.display(fontSize: 15, color: AppColors.teal),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Hi, ${user.name}', style: AppTypography.display(fontSize: 16)),
-                      Text('${user.barangay} resident · Purok ${user.purok}', style: AppTypography.bodySoft(fontSize: 11.5)),
-                    ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Hi, ${user.name}', style: AppTypography.display(fontSize: 16)),
+                        Text('${user.barangay} resident · Purok ${user.purok}', style: AppTypography.bodySoft(fontSize: 11.5)),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const Icon(Icons.chevron_right, size: 18, color: AppColors.inkSoft),
+                ],
+              ),
             ),
           ),
 
