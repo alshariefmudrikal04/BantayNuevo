@@ -10,7 +10,6 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/section_title.dart';
 import '../../../core/widgets/list_item_tile.dart';
 import '../../../core/widgets/status_badge.dart';
-import '../../../core/widgets/feature_stub_screen.dart';
 import '../../../core/services/fcm_service.dart';
 import 'report_form_screen.dart';
 import 'sos_screen.dart';
@@ -18,6 +17,7 @@ import 'my_reports_screen.dart';
 import 'report_detail_screen.dart';
 import 'notifications_screen.dart';
 import 'profile/profile_screen.dart';
+import '../../resources/screens/resources_screen.dart';
 import '../data/report_repository.dart';
 import '../data/notification_repository.dart';
 import '../../auth/data/auth_repository.dart';
@@ -218,7 +218,7 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
                   label: 'Hotlines',
                   variant: AppButtonVariant.ghost,
                   onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const FeatureStubScreen(title: 'Resources')),
+                    MaterialPageRoute(builder: (_) => const ResourcesScreen()),
                   ),
                 ),
               ),
