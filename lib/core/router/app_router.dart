@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../features/auth/data/auth_repository.dart';
 import '../../features/auth/screens/role_select_screen.dart';
-import '../../features/resident/screens/resident_home_screen.dart';
+import '../../features/resident/screens/resident_shell_screen.dart';
 import '../widgets/coming_soon_screen.dart';
 
 /// Root auth/role gate. Listens to AuthRepository.authStateChanges and shows:
@@ -32,7 +32,7 @@ class AuthGate extends StatelessWidget {
         }
 
         return switch (user.role) {
-          UserRole.resident => ResidentHomeScreen(user: user),
+          UserRole.resident => ResidentShellScreen(user: user),
           // TODO(Prompt 9+): replace with the real TanodDashboardScreen once
           // its UI reference is provided.
           UserRole.tanod => ComingSoonScreen(
@@ -46,6 +46,6 @@ class AuthGate extends StatelessWidget {
             ),
         };
       },
-    ); 
+    );
   }
 }
