@@ -177,9 +177,9 @@ class _SosScreenState extends State<SosScreen> {
                     AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                        children: [ 
                           Text(
-                            'Your emergency contacts are texted on every SOS once Profile → Emergency contacts is set up (Prompt 7) — they don\'t use the app, so SMS is the only way to reach them.',
+                            'Coming Soon!',
                             style: AppTypography.bodySoft(fontSize: 11),
                           ),
                         ],

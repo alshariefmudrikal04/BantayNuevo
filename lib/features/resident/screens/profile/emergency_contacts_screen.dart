@@ -3,7 +3,7 @@ import '../../../../models/user_model.dart';
 import '../../../../models/emergency_contact_model.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
-import '../../../../core/theme/app_spacing.dart'; 
+import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../data/emergency_contact_repository.dart';
