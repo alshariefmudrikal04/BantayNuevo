@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:http/http.dart' as http;
 import '../../../models/report_model.dart';
+import '../../../core/config/cloudinary_config.dart';
 
 /// A locally-picked evidence file, before it's uploaded. Kept decoupled from
 /// image_picker's XFile so this repository doesn't depend on UI-layer types.
@@ -17,12 +19,10 @@ class PickedEvidence {
 /// with just the read needed for Home's "recent activity" list — Prompt 3
 /// adds createReport() with evidence upload on top of this same class.
 class ReportRepository {
-  ReportRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})
-      : _firestore = firestore ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+  ReportRepository({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
-  final FirebaseStorage _storage;
 
   CollectionReference<Map<String, dynamic>> get _reports => _firestore.collection('reports');
 
@@ -61,8 +61,10 @@ class ReportRepository {
   }
 
   /// Creates a new report doc (status defaults to "pending") and uploads any
-  /// attached evidence to Storage under reports/{reportId}/evidence/ first,
-  /// storing the resulting download URLs in evidenceFiles — per AGENTS.md §5.
+  /// attached evidence to Cloudinary first — TEMPORARY demo-purposes swap-in
+  /// for Firebase Storage, which is blocked on the Blaze plan. See
+  /// core/config/cloudinary_config.dart for how to switch back later.
+  /// Storing the resulting URLs in evidenceFiles — per AGENTS.md §5.
   /// Returns the new report's id.
   Future<String> createReport({
     required String residentId,
@@ -77,9 +79,7 @@ class ReportRepository {
 
     final uploaded = <Map<String, dynamic>>[];
     for (final item in evidence) {
-      final ref = _storage.ref('reports/${docRef.id}/evidence/${item.name}');
-      await ref.putFile(item.file);
-      final url = await ref.getDownloadURL();
+      final url = await _uploadToCloudinary(item);
       uploaded.add(EvidenceFile(
         type: item.type,
         url: url,
@@ -105,5 +105,29 @@ class ReportRepository {
     });
 
     return docRef.id;
+  }
+
+  /// Uploads one file to Cloudinary via an unsigned preset and returns the
+  /// resulting secure_url. Throws if the upload fails (e.g. placeholder
+  /// config values never replaced with real ones) so the UI can show a
+  /// clear error instead of silently losing evidence.
+  Future<String> _uploadToCloudinary(PickedEvidence item) async {
+    final request = http.MultipartRequest('POST', CloudinaryConfig.uploadUrl)
+      ..fields['upload_preset'] = CloudinaryConfig.uploadPreset
+      ..files.add(await http.MultipartFile.fromPath('file', item.file.path));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode != 200) {
+      throw Exception('Cloudinary upload failed (${response.statusCode}): ${response.body}');
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final url = body['secure_url'] as String?;
+    if (url == null) {
+      throw Exception('Cloudinary upload succeeded but no secure_url found in response.');
+    }
+    return url;
   }
 }

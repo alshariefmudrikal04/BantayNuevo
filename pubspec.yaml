@@ -29,6 +29,7 @@ dependencies:
   # Evidence upload (Prompt 3 — report form)
   image_picker: ^1.1.2
   file_picker: ^10.3.3
+  http: ^1.2.2
 
   # Security screen (Prompt 7)
   local_auth: ^2.3.0
