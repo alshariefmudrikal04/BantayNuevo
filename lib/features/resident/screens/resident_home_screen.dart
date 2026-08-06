@@ -36,6 +36,15 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
   final _notificationRepository = NotificationRepository();
   final _authRepository = AuthRepository();
 
+  // Created ONCE here instead of inline in build() — a fresh stream on
+  // every rebuild resets StreamBuilder to "waiting" each time, causing
+  // content to flash and disappear. Same fix applied across all resident
+  // screens that stream from Firestore.
+  late final Stream<List<ReportModel>> _recentReportsStream =
+      _reportRepository.streamRecentReports(widget.user.uid, limit: 2);
+  late final Stream<List<NotificationModel>> _notificationsStream =
+      _notificationRepository.streamForUser(widget.user.uid);
+
   @override
   void initState() {
     super.initState();
@@ -66,7 +75,7 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
         ),
         actions: [
           StreamBuilder<List<NotificationModel>>(
-            stream: _notificationRepository.streamForUser(user.uid),
+            stream: _notificationsStream,
             builder: (context, snapshot) {
               final unread = (snapshot.data ?? []).where((n) => !n.read).length;
               return Stack(
@@ -173,7 +182,7 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
             ],
           ),
           StreamBuilder<List<ReportModel>>(
-            stream: _reportRepository.streamRecentReports(user.uid, limit: 2),
+            stream: _recentReportsStream,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Padding(

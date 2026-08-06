@@ -19,6 +19,8 @@ class EmergencyContactsScreen extends StatefulWidget {
 
 class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   final _repository = EmergencyContactRepository();
+  late final Stream<List<EmergencyContactModel>> _contactsStream =
+      _repository.streamForResident(widget.user.uid);
 
   Future<void> _showAddDialog() async {
     final nameController = TextEditingController();
@@ -77,7 +79,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
           ),
           Expanded(
             child: StreamBuilder<List<EmergencyContactModel>>(
-              stream: _repository.streamForResident(widget.user.uid),
+              stream: _contactsStream,
               builder: (context, snapshot) {
                 final contacts = snapshot.data ?? [];
                 if (snapshot.connectionState == ConnectionState.waiting) {

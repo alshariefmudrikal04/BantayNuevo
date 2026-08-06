@@ -11,11 +11,23 @@ import '../../../core/widgets/app_button.dart';
 import '../data/report_repository.dart';
 import 'evidence_vault_screen.dart';
 
-class ReportDetailScreen extends StatelessWidget {
-  ReportDetailScreen({super.key, required this.reportId});
+class ReportDetailScreen extends StatefulWidget {
+  const ReportDetailScreen({super.key, required this.reportId});
 
   final String reportId;
+
+  @override
+  State<ReportDetailScreen> createState() => _ReportDetailScreenState();
+}
+
+class _ReportDetailScreenState extends State<ReportDetailScreen> {
   final _reportRepository = ReportRepository();
+
+  // Created ONCE here instead of inline in build() — creating a fresh stream
+  // on every rebuild (e.g. every time you navigate back to this screen)
+  // resets StreamBuilder to "waiting" each time, which is why content was
+  // flashing and disappearing. Caching it fixes that.
+  late final Stream<ReportModel> _reportStream = _reportRepository.streamReport(widget.reportId);
 
   AppStatus _toAppStatus(ReportStatus s) => switch (s) {
         ReportStatus.pending => AppStatus.pending,
@@ -34,7 +46,7 @@ class ReportDetailScreen extends StatelessWidget {
       backgroundColor: AppColors.bg,
       appBar: AppBar(title: const Text('Report detail')),
       body: StreamBuilder<ReportModel>(
-        stream: _reportRepository.streamReport(reportId),
+        stream: _reportStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -58,17 +70,9 @@ class ReportDetailScreen extends StatelessWidget {
                       style: AppTypography.mono(fontSize: 10.5),
                     ),
                     const SizedBox(height: 4),
-                    FutureBuilder<String?>(
-                      future: report.assignedTanodId != null
-                          ? _reportRepository.fetchUserName(report.assignedTanodId!)
-                          : Future.value(null),
-                      builder: (context, tanodSnapshot) {
-                        final tanodName = tanodSnapshot.data;
-                        return Text(
-                          tanodName != null ? 'Assigned to $tanodName' : 'Not yet assigned to a Tanod',
-                          style: AppTypography.mono(fontSize: 10.5),
-                        );
-                      },
+                    _TanodNameLabel(
+                      reportRepository: _reportRepository,
+                      assignedTanodId: report.assignedTanodId,
                     ),
                   ],
                 ),
@@ -96,13 +100,46 @@ class ReportDetailScreen extends StatelessWidget {
                 label: '🔒 View evidence vault',
                 variant: AppButtonVariant.outline,
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => EvidenceVaultScreen(reportId: reportId)),
+                  MaterialPageRoute(builder: (_) => EvidenceVaultScreen(reportId: widget.reportId)),
                 ),
               ),
             ],
           );
         },
       ),
+    );
+  }
+}
+
+/// Split out as its own StatefulWidget so the tanod-name lookup (a Future,
+/// same "recreated on every rebuild" trap as the stream above) only runs
+/// once per assignedTanodId, not once per parent rebuild.
+class _TanodNameLabel extends StatefulWidget {
+  const _TanodNameLabel({required this.reportRepository, required this.assignedTanodId});
+
+  final ReportRepository reportRepository;
+  final String? assignedTanodId;
+
+  @override
+  State<_TanodNameLabel> createState() => _TanodNameLabelState();
+}
+
+class _TanodNameLabelState extends State<_TanodNameLabel> {
+  late final Future<String?> _tanodNameFuture = widget.assignedTanodId != null
+      ? widget.reportRepository.fetchUserName(widget.assignedTanodId!)
+      : Future.value(null);
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _tanodNameFuture,
+      builder: (context, snapshot) {
+        final tanodName = snapshot.data;
+        return Text(
+          tanodName != null ? 'Assigned to $tanodName' : 'Not yet assigned to a Tanod',
+          style: AppTypography.mono(fontSize: 10.5),
+        );
+      },
     );
   }
 }
