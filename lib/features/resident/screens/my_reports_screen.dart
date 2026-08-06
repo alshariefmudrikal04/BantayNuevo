@@ -39,6 +39,17 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snapshot.hasError) {
+            return Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: AppCard(
+                child: Text(
+                  'Could not load your reports.\n\n${snapshot.error}',
+                  style: const TextStyle(color: AppColors.urgent, fontSize: 11),
+                ),
+              ),
+            );
+          }
           final reports = snapshot.data ?? [];
           if (reports.isEmpty) {
             return Padding(
