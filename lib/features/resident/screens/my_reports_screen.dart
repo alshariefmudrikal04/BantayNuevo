@@ -9,11 +9,18 @@ import '../../../core/widgets/status_badge.dart';
 import '../data/report_repository.dart';
 import 'report_detail_screen.dart';
 
-class MyReportsScreen extends StatelessWidget {
-  MyReportsScreen({super.key, required this.user});
+class MyReportsScreen extends StatefulWidget {
+  const MyReportsScreen({super.key, required this.user});
 
   final UserModel user;
+
+  @override
+  State<MyReportsScreen> createState() => _MyReportsScreenState();
+}
+
+class _MyReportsScreenState extends State<MyReportsScreen> {
   final _reportRepository = ReportRepository();
+  late final Stream<List<ReportModel>> _reportsStream = _reportRepository.streamAllReports(widget.user.uid);
 
   AppStatus _toAppStatus(ReportStatus s) => switch (s) {
         ReportStatus.pending => AppStatus.pending,
@@ -27,10 +34,21 @@ class MyReportsScreen extends StatelessWidget {
       backgroundColor: AppColors.bg,
       appBar: AppBar(title: const Text('My reports')),
       body: StreamBuilder<List<ReportModel>>(
-        stream: _reportRepository.streamAllReports(user.uid),
+        stream: _reportsStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: AppCard(
+                child: Text(
+                  'Could not load your reports.\n\n${snapshot.error}',
+                  style: const TextStyle(color: AppColors.urgent, fontSize: 11),
+                ),
+              ),
+            );
           }
           final reports = snapshot.data ?? [];
           if (reports.isEmpty) {
