@@ -10,11 +10,19 @@ import 'report_detail_screen.dart';
 import 'sos_screen.dart';
 import '../../../models/user_model.dart';
 
-class NotificationsScreen extends StatelessWidget {
-  NotificationsScreen({super.key, required this.user});
+class NotificationsScreen extends StatefulWidget {
+  const NotificationsScreen({super.key, required this.user});
 
   final UserModel user;
+
+  @override
+  State<NotificationsScreen> createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends State<NotificationsScreen> {
   final _notificationRepository = NotificationRepository();
+  late final Stream<List<NotificationModel>> _notificationsStream =
+      _notificationRepository.streamForUser(widget.user.uid);
 
   String _relativeTime(DateTime? date) {
     if (date == null) return 'just now';
@@ -36,7 +44,7 @@ class NotificationsScreen extends StatelessWidget {
       );
     } else if (n.relatedAlertId != null) {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => SosScreen(user: user)),
+        MaterialPageRoute(builder: (_) => SosScreen(user: widget.user)),
       );
     }
   }
@@ -47,7 +55,7 @@ class NotificationsScreen extends StatelessWidget {
       backgroundColor: AppColors.bg,
       appBar: AppBar(title: const Text('Notifications')),
       body: StreamBuilder<List<NotificationModel>>(
-        stream: _notificationRepository.streamForUser(user.uid),
+        stream: _notificationsStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

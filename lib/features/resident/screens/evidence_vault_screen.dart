@@ -9,11 +9,23 @@ import '../data/report_repository.dart';
 /// View-only by design (AGENTS.md §8) — this screen must never gain a
 /// delete or download action, that's what preserves the evidence chain of
 /// custody described in the thesis.
-class EvidenceVaultScreen extends StatelessWidget {
-  EvidenceVaultScreen({super.key, required this.reportId});
+class EvidenceVaultScreen extends StatefulWidget {
+  const EvidenceVaultScreen({super.key, required this.reportId});
 
   final String reportId;
+
+  @override
+  State<EvidenceVaultScreen> createState() => _EvidenceVaultScreenState();
+}
+
+class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
   final _reportRepository = ReportRepository();
+
+  // Created ONCE here instead of inline in build() — same fix as
+  // report_detail_screen.dart. A fresh stream on every rebuild (e.g. every
+  // time you navigate back to this screen) reset StreamBuilder to "waiting"
+  // each time, which is why the file was flashing and disappearing.
+  late final Stream<ReportModel> _reportStream = _reportRepository.streamReport(widget.reportId);
 
   String _formatDate(DateTime? date) {
     if (date == null) return '';
@@ -33,7 +45,7 @@ class EvidenceVaultScreen extends StatelessWidget {
       backgroundColor: AppColors.bg,
       appBar: AppBar(title: const Text('Evidence vault')),
       body: StreamBuilder<ReportModel>(
-        stream: _reportRepository.streamReport(reportId),
+        stream: _reportStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
