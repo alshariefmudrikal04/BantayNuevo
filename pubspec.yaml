@@ -26,6 +26,11 @@ dependencies:
   geolocator: ^13.0.1
   google_maps_flutter: ^2.9.0
 
+  flutter_map: ^8.2.1
+  latlong2: ^0.9.1
+
+
+
   # Evidence upload (Prompt 3 — report form)
   image_picker: ^1.1.2
   file_picker: ^10.3.3

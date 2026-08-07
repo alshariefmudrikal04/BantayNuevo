@@ -4,12 +4,15 @@ import 'package:geolocator/geolocator.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../models/user_model.dart';
+import '../../../models/sos_alert_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/section_title.dart';
 import '../../../core/widgets/net_banner.dart';
+import '../../../core/widgets/live_map.dart';
 import '../data/sos_repository.dart';
 import '../widgets/panic_button.dart';
 import '../widgets/escalate_row.dart';
@@ -28,6 +31,13 @@ class _SosScreenState extends State<SosScreen> {
   bool _online = true;
   bool _busy = false;
 
+  // Set once an online alert is created — switches the screen into the
+  // live-tracking view. Null means "no active alert, show the panic button".
+  String? _activeAlertId;
+  Stream<SosAlertModel>? _alertStream;
+  Position? _lastKnownPosition;
+  Timer? _locationTimer;
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +45,12 @@ class _SosScreenState extends State<SosScreen> {
     Connectivity().onConnectivityChanged.listen((results) {
       if (mounted) setState(() => _online = !results.contains(ConnectivityResult.none));
     });
+  }
+
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _checkConnectivity() async {
@@ -77,7 +93,7 @@ class _SosScreenState extends State<SosScreen> {
 
     try {
       if (_online) {
-        await _sosRepository
+        final alertId = await _sosRepository
             .createOnlineAlert(
               residentId: widget.user.uid,
               escalationTarget: escalationTarget,
@@ -88,6 +104,13 @@ class _SosScreenState extends State<SosScreen> {
               const Duration(seconds: 10),
               onTimeout: () => throw TimeoutException('Could not reach Firestore'),
             );
+
+        setState(() {
+          _activeAlertId = alertId;
+          _alertStream = _sosRepository.streamAlert(alertId);
+          _lastKnownPosition = position;
+        });
+        _startLiveLocationUpdates(alertId);
         _showSnack('SOS sent — Tanod is being notified.');
       } else {
         await _sendOfflineSms(escalationTarget: escalationTarget, position: position);
@@ -105,6 +128,37 @@ class _SosScreenState extends State<SosScreen> {
     }
   }
 
+  /// Keeps the resident's location current on the alert doc every few
+  /// seconds while it's active, so a responding tanod can actually follow
+  /// them — not just see where they were the instant they pressed the button.
+  void _startLiveLocationUpdates(String alertId) {
+    _locationTimer?.cancel();
+    _locationTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
+      final position = await _captureLocation();
+      if (position == null) return;
+      if (mounted) setState(() => _lastKnownPosition = position);
+      try {
+        await _sosRepository.updateMyLocation(alertId, position.latitude, position.longitude);
+      } catch (_) {
+        // Transient network hiccup — next tick will retry, nothing to show the user.
+      }
+    });
+  }
+
+  Future<void> _markResolved() async {
+    _locationTimer?.cancel();
+    if (_activeAlertId != null) {
+      await _sosRepository.markResolved(_activeAlertId!);
+    }
+    if (!mounted) return;
+    setState(() {
+      _activeAlertId = null;
+      _alertStream = null;
+      _lastKnownPosition = null;
+    });
+    _showSnack('Marked resolved.');
+  }
+
   Future<void> _sendOfflineSms({required String escalationTarget, required Position position}) async {
     final numbers = <String>{
       ...await _sosRepository.fetchPhoneNumbersForRole('tanod'),
@@ -119,11 +173,7 @@ class _SosScreenState extends State<SosScreen> {
     final message = '[EMERGENCY - Bantay Nuevo] ${widget.user.name} needs help. '
         'Location: https://maps.google.com/?q=${position.latitude},${position.longitude}';
 
-    final uri = Uri(
-      scheme: 'sms',
-      path: numbers.join(','),
-      queryParameters: {'body': message},
-    );
+    final uri = Uri(scheme: 'sms', path: numbers.join(','), queryParameters: {'body': message});
 
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
@@ -136,10 +186,7 @@ class _SosScreenState extends State<SosScreen> {
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.urgent : AppColors.navyDeep,
-      ),
+      SnackBar(content: Text(message), backgroundColor: isError ? AppColors.urgent : AppColors.navyDeep),
     );
   }
 
@@ -151,47 +198,103 @@ class _SosScreenState extends State<SosScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            NetBanner(isOnline: _online),
+            if (_activeAlertId == null) NetBanner(isOnline: _online),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                child: Column(
-                  children: [
-                    Text(
-                      _online
-                          ? 'Live GPS shared with Tanod/police in-app. Emergency contact texting arrives once that\'s wired up.'
-                          : 'No internet detected — pressing below opens a pre-filled text to your Tanod (and police, if escalated).',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.bodySoft(fontSize: 12),
-                    ),
-                    const SizedBox(height: 20),
-                    PanicButton(busy: _busy, onPressed: () => _trigger('auto')),
-                    const SizedBox(height: 8),
-                    Text('Defaults to nearest Tanod · officials notified', style: AppTypography.mono(fontSize: 10)),
-                    const SectionTitle('Or escalate directly'),
-                    EscalateRow(
-                      onTanod: _busy ? () {} : () => _trigger('tanod'),
-                      onPolice: _busy ? () {} : () => _trigger('pnp'),
-                    ),
-                    const SizedBox(height: 4),
-                    AppCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [ 
-                          Text(
-                            'Coming Soon!',
-                            style: AppTypography.bodySoft(fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              child: _activeAlertId != null
+                  ? _buildTrackingView(context)
+                  : _buildPanicView(context),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPanicView(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        children: [
+          Text(
+            _online
+                ? 'Live GPS shared with Tanod/police in-app. Emergency contact texting arrives once that\'s wired up.'
+                : 'No internet detected — pressing below opens a pre-filled text to your Tanod (and police, if escalated).',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodySoft(fontSize: 12),
+          ),
+          const SizedBox(height: 20),
+          PanicButton(busy: _busy, onPressed: () => _trigger('auto')),
+          const SizedBox(height: 8),
+          Text('Defaults to nearest Tanod · officials notified', style: AppTypography.mono(fontSize: 10)),
+          const SectionTitle('Or escalate directly'),
+          EscalateRow(
+            onTanod: _busy ? () {} : () => _trigger('tanod'),
+            onPolice: _busy ? () {} : () => _trigger('pnp'),
+          ),
+          const SizedBox(height: 4),
+          AppCard(
+            child: Text(
+              'Your emergency contacts are texted on every SOS once Profile → Emergency contacts is set up (Prompt 7) — they don\'t use the app, so SMS is the only way to reach them.',
+              style: AppTypography.bodySoft(fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrackingView(BuildContext context) {
+    return StreamBuilder<SosAlertModel>(
+      stream: _alertStream,
+      builder: (context, snapshot) {
+        final alert = snapshot.data;
+        final selfLat = _lastKnownPosition?.latitude ?? alert?.lat;
+        final selfLng = _lastKnownPosition?.longitude ?? alert?.lng;
+
+        if (selfLat == null || selfLng == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final status = alert?.status ?? SosStatus.active;
+        final statusText = switch (status) {
+          SosStatus.active => 'Waiting for a responder...',
+          SosStatus.responded => '${alert?.responderName ?? 'A responder'} is on the way',
+          SosStatus.closed => 'Marked resolved',
+        };
+        final statusColor = switch (status) {
+          SosStatus.active => AppColors.amber,
+          SosStatus.responded => AppColors.teal,
+          SosStatus.closed => AppColors.resolvedFg,
+        };
+
+        return Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(width: 8, height: 8, decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(statusText, style: AppTypography.display(fontSize: 14, color: statusColor))),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: LiveMap(
+                  selfLat: selfLat,
+                  selfLng: selfLng,
+                  selfLabel: 'You',
+                  otherLat: alert?.responderLat,
+                  otherLng: alert?.responderLng,
+                  otherLabel: alert?.responderName,
+                ),
+              ),
+              const SizedBox(height: 12),
+              AppButton(label: "I'm safe now — mark resolved", variant: AppButtonVariant.ghost, onPressed: _markResolved),
+            ],
+          ),
+        );
+      },
     );
   }
 }
