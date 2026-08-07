@@ -4,6 +4,7 @@ import '../../features/auth/data/auth_repository.dart';
 import '../../features/auth/screens/role_select_screen.dart';
 import '../../features/resident/screens/resident_shell_screen.dart';
 import '../../features/tanod/screens/tanod_sos_screen.dart';
+import '../../features/tanod/screens/tanod_home_screen.dart';
 import '../widgets/coming_soon_screen.dart';
 
 /// Root auth/role gate. Listens to AuthRepository.authStateChanges and shows:
