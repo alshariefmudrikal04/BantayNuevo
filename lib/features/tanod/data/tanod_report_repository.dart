@@ -45,4 +45,15 @@ class TanodReportRepository {
     if (!doc.exists) return null;
     return doc.data()?['name'] as String?;
   }
+
+  /// Append-only write to `accessLog` (AGENTS.md §8 — never overwrite or
+  /// delete existing entries, this is what preserves the chain-of-custody
+  /// trail once a tanod opens a report's evidence).
+  Future<void> appendAccessLog(String reportId, String who) {
+    return _reports.doc(reportId).update({
+      'accessLog': FieldValue.arrayUnion([
+        {'who': who, 'when': Timestamp.now()},
+      ]),
+    });
+  }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../models/user_model.dart';
 import '../../../models/report_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -7,11 +8,13 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/section_title.dart';
 import '../../../core/widgets/list_item_tile.dart';
 import '../../../core/widgets/status_badge.dart';
-import '../../../core/widgets/feature_stub_screen.dart';
 import '../data/tanod_report_repository.dart';
+import 'tanod_report_review_screen.dart';
 
 class TanodDashboardScreen extends StatefulWidget {
-  const TanodDashboardScreen({super.key});
+  const TanodDashboardScreen({super.key, required this.user});
+
+  final UserModel user;
 
   @override
   State<TanodDashboardScreen> createState() => _TanodDashboardScreenState();
@@ -87,9 +90,9 @@ class _TanodDashboardScreenState extends State<TanodDashboardScreen> {
                           trailing: StatusBadge(status: _toAppStatus(reports[i].status)),
                           isLast: i == reports.length - 1,
                           onTap: () => Navigator.of(context).push(
-                            // tanod_report_review_screen.dart is Prompt 11 —
-                            // stubbed here until it exists.
-                            MaterialPageRoute(builder: (_) => const FeatureStubScreen(title: 'Report review')),
+                            MaterialPageRoute(
+                              builder: (_) => TanodReportReviewScreen(reportId: reports[i].id, user: widget.user),
+                            ),
                           ),
                         ),
                     ],

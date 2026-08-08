@@ -2,19 +2,22 @@ import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
 import '../../../models/report_model.dart';
+import '../../../models/notification_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
 import '../data/tanod_sos_repository.dart';
 import '../data/tanod_report_repository.dart';
+import '../../resident/data/notification_repository.dart';
 import '../../auth/data/auth_repository.dart';
 import 'tanod_sos_screen.dart';
 import 'tanod_dashboard_screen.dart';
+import 'tanod_notifications_screen.dart';
 
-/// Temporary Tanod landing screen — SOS response only, built as the first
-/// slice of Prompt 9. The full dashboard (report review, report status
-/// updates, etc.) replaces this once its UI reference is provided.
+/// Tanod landing screen — SOS alerts card + incident reports card, each
+/// with a live count, plus the notifications bell. Built up across
+/// Prompts 9–12.
 class TanodHomeScreen extends StatefulWidget {
   const TanodHomeScreen({super.key, required this.user});
 
@@ -27,9 +30,12 @@ class TanodHomeScreen extends StatefulWidget {
 class _TanodHomeScreenState extends State<TanodHomeScreen> {
   final _repository = TanodSosRepository();
   final _reportRepository = TanodReportRepository();
+  final _notificationRepository = NotificationRepository();
   final _authRepository = AuthRepository();
   late final Stream<List<SosAlertModel>> _alertsStream = _repository.streamOpenAlerts();
   late final Stream<List<ReportModel>> _reportsStream = _reportRepository.streamAllReports();
+  late final Stream<List<NotificationModel>> _notificationsStream =
+      _notificationRepository.streamForUser(widget.user.uid);
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +52,34 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
           ],
         ),
         actions: [
+          StreamBuilder<List<NotificationModel>>(
+            stream: _notificationsStream,
+            builder: (context, snapshot) {
+              final unread = (snapshot.data ?? []).where((n) => !n.read).length;
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.notifications_none, size: 22),
+                    tooltip: 'Notifications',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => TanodNotificationsScreen(user: user)),
+                    ),
+                  ),
+                  if (unread > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(color: AppColors.urgent, shape: BoxShape.circle),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout, size: 20),
             tooltip: 'Log out',
@@ -145,7 +179,7 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
               return InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const TanodDashboardScreen()),
+                  MaterialPageRoute(builder: (_) => TanodDashboardScreen(user: user)),
                 ),
                 child: AppCard(
                   child: Row(
@@ -186,14 +220,6 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
             },
           ),
 
-          const SizedBox(height: 20),
-          AppCard(
-            child: Text(
-              'Report review (assign, view evidence, update status) is coming in the next prompt — for now '
-              'tapping a report shows a placeholder.',
-              style: AppTypography.bodySoft(fontSize: 11),
-            ),
-          ),
         ],
       ),
     );
