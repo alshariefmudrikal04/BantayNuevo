@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
+import '../../../models/report_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/app_button.dart';
 import '../data/tanod_sos_repository.dart';
+import '../data/tanod_report_repository.dart';
 import '../../auth/data/auth_repository.dart';
 import 'tanod_sos_screen.dart';
+import 'tanod_dashboard_screen.dart';
 
 /// Temporary Tanod landing screen — SOS response only, built as the first
 /// slice of Prompt 9. The full dashboard (report review, report status
@@ -24,8 +26,10 @@ class TanodHomeScreen extends StatefulWidget {
 
 class _TanodHomeScreenState extends State<TanodHomeScreen> {
   final _repository = TanodSosRepository();
+  final _reportRepository = TanodReportRepository();
   final _authRepository = AuthRepository();
   late final Stream<List<SosAlertModel>> _alertsStream = _repository.streamOpenAlerts();
+  late final Stream<List<ReportModel>> _reportsStream = _reportRepository.streamAllReports();
 
   @override
   Widget build(BuildContext context) {
@@ -131,11 +135,62 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
             },
           ),
 
+          const SizedBox(height: 10),
+          StreamBuilder<List<ReportModel>>(
+            stream: _reportsStream,
+            builder: (context, snapshot) {
+              final reports = snapshot.data ?? [];
+              final pendingCount = reports.where((r) => r.status == ReportStatus.pending).length;
+
+              return InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const TanodDashboardScreen()),
+                ),
+                child: AppCard(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: pendingCount > 0 ? AppColors.amberLight : AppColors.tealLight,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.assignment_outlined,
+                          color: pendingCount > 0 ? AppColors.amber : AppColors.teal,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Incident reports', style: AppTypography.display(fontSize: 14)),
+                            Text(
+                              pendingCount > 0
+                                  ? '$pendingCount pending review · ${reports.length} total'
+                                  : '${reports.length} total, none pending',
+                              style: AppTypography.bodySoft(fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: AppColors.inkSoft),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+
           const SizedBox(height: 20),
           AppCard(
             child: Text(
-              'This is a temporary Tanod screen — SOS response only, so you can test the live-tracking flow. '
-              'The full dashboard (incident report review, status updates, etc.) comes later in Prompt 9.',
+              'Report review (assign, view evidence, update status) is coming in the next prompt — for now '
+              'tapping a report shows a placeholder.',
               style: AppTypography.bodySoft(fontSize: 11),
             ),
           ),
