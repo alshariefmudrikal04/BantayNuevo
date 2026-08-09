@@ -29,6 +29,7 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
   Position? _myPosition;
   Timer? _locationTimer;
   bool _accepting = false;
+  bool _arriving = false;
 
   Future<String?> _residentNameFuture(String residentId) {
     return _nameFutures.putIfAbsent(residentId, () => _repository.fetchUserName(residentId));
@@ -56,7 +57,7 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
     }
   }
 
-  Future<void> _accept() async {
+  Future<void> _accept(String residentId) async {
     setState(() => _accepting = true);
     final position = await _captureLocation();
     if (position == null) {
@@ -67,6 +68,7 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
     try {
       await _repository.acceptAlert(
         alertId: widget.alertId,
+        residentId: residentId,
         tanodId: widget.user.uid,
         tanodName: widget.user.name,
         lat: position.latitude,
@@ -97,9 +99,31 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
     });
   }
 
-  Future<void> _resolve() async {
+  /// Distinct from resolving — this is the tanod telling the resident
+  /// "I'm physically here", a safety milestone worth surfacing on its own
+  /// (see TanodSosRepository.markArrived).
+  Future<void> _arrived(String residentId) async {
+    setState(() => _arriving = true);
+    try {
+      await _repository.markArrived(
+        alertId: widget.alertId,
+        residentId: residentId,
+        tanodName: widget.user.name,
+      );
+    } catch (e) {
+      _showSnack('Could not update: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _arriving = false);
+    }
+  }
+
+  Future<void> _resolve(String residentId) async {
     _locationTimer?.cancel();
-    await _repository.markResolved(widget.alertId);
+    await _repository.markResolved(
+      alertId: widget.alertId,
+      residentId: residentId,
+      tanodName: widget.user.name,
+    );
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -124,6 +148,7 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
           final alert = snapshot.data!;
           final iAccepted = alert.responderId == widget.user.uid;
           final someoneElseAccepted = alert.responderId != null && !iAccepted;
+          final hasArrived = alert.status == SosStatus.arrived;
 
           return FutureBuilder<String?>(
             future: _residentNameFuture(alert.residentId),
@@ -164,10 +189,37 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
                     if (!someoneElseAccepted && !iAccepted)
                       AppButton(
                         label: _accepting ? 'Accepting...' : 'Accept — respond to this SOS',
-                        onPressed: _accepting ? null : _accept,
+                        onPressed: _accepting ? null : () => _accept(alert.residentId),
                       ),
-                    if (iAccepted)
-                      AppButton(label: 'Mark resolved', variant: AppButtonVariant.ghost, onPressed: _resolve),
+                    if (iAccepted && !hasArrived) ...[
+                      AppButton(
+                        label: _arriving ? 'Updating...' : "I've arrived at the location",
+                        onPressed: _arriving ? null : () => _arrived(alert.residentId),
+                      ),
+                      const SizedBox(height: 8),
+                      AppButton(
+                        label: 'Mark resolved',
+                        variant: AppButtonVariant.ghost,
+                        onPressed: () => _resolve(alert.residentId),
+                      ),
+                    ],
+                    if (iAccepted && hasArrived) ...[
+                      AppCard(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle, size: 16, color: AppColors.resolvedFg),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'You marked yourself as arrived. $residentName has been notified.',
+                                style: AppTypography.bodySoft(fontSize: 11.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AppButton(label: 'Mark resolved', onPressed: () => _resolve(alert.residentId)),
+                    ],
                   ],
                 ),
               );

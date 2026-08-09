@@ -1,16 +1,18 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum SosStatus { active, responded, closed }
+enum SosStatus { active, responded, arrived, closed }
 
 extension SosStatusX on SosStatus {
   String get value => switch (this) {
         SosStatus.active => 'active',
         SosStatus.responded => 'responded',
+        SosStatus.arrived => 'arrived',
         SosStatus.closed => 'closed',
       };
 
   static SosStatus fromString(String value) => switch (value) {
         'responded' => SosStatus.responded,
+        'arrived' => SosStatus.arrived,
         'closed' => SosStatus.closed,
         _ => SosStatus.active,
       };

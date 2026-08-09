@@ -75,10 +75,15 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
     );
   }
 
-  Future<void> _assignToMe() async {
+  Future<void> _assignToMe(String residentId) async {
     setState(() => _assigning = true);
     try {
-      await _repository.assignToTanod(widget.reportId, widget.user.uid, widget.user.name);
+      await _repository.assignToTanod(
+        widget.reportId,
+        widget.user.uid,
+        widget.user.name,
+        residentId: residentId,
+      );
     } catch (e) {
       _showSnack('Could not assign: $e', isError: true);
     } finally {
@@ -92,9 +97,19 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
     setState(() => _updatingStatus = true);
     try {
       if (report.assignedTanodId == null) {
-        await _repository.assignToTanod(widget.reportId, widget.user.uid, widget.user.name);
+        await _repository.assignToTanod(
+          widget.reportId,
+          widget.user.uid,
+          widget.user.name,
+          residentId: report.residentId,
+        );
       }
-      await _repository.updateStatus(widget.reportId, status);
+      await _repository.updateStatus(
+        widget.reportId,
+        status,
+        residentId: report.residentId,
+        tanodName: widget.user.name,
+      );
     } catch (e) {
       _showSnack('Could not update status: $e', isError: true);
     } finally {
@@ -178,7 +193,7 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
               else
                 AppButton(
                   label: _assigning ? 'Assigning...' : 'Assign to me',
-                  onPressed: _assigning ? null : _assignToMe,
+                  onPressed: _assigning ? null : () => _assignToMe(report.residentId),
                 ),
 
               const SectionTitle('Status'),

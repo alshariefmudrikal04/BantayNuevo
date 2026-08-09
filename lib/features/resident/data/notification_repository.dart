@@ -1,6 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/notification_model.dart';
 
+/// Shared by resident AND tanod/police screens (recipientId isn't
+/// role-specific — see AGENTS.md §5). Historically this only streamed
+/// notifications; `create()` is what actually writes them now, since
+/// nothing in the app wrote to this collection before — the bell/list
+/// screens existed but always showed empty.
 class NotificationRepository {
   NotificationRepository({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
 
@@ -20,5 +25,26 @@ class NotificationRepository {
 
   Future<void> markAsRead(String notificationId) {
     return _notifications.doc(notificationId).update({'read': true});
+  }
+
+  /// Writes a notification doc directly from the client at a "key moment"
+  /// (assigned / arrived / resolved) rather than on every field change —
+  /// keeps the resident's bell meaningful instead of spammy. Done
+  /// client-side rather than via a Cloud Function trigger so it works
+  /// without the Blaze plan (same reasoning as the offline-SMS path).
+  Future<void> create({
+    required String recipientId,
+    required String message,
+    String? relatedReportId,
+    String? relatedAlertId,
+  }) {
+    return _notifications.add({
+      'recipientId': recipientId,
+      'message': message,
+      'read': false,
+      if (relatedReportId != null) 'relatedReportId': relatedReportId,
+      if (relatedAlertId != null) 'relatedAlertId': relatedAlertId,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 }

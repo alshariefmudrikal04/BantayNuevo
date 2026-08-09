@@ -259,11 +259,13 @@ class _SosScreenState extends State<SosScreen> {
         final statusText = switch (status) {
           SosStatus.active => 'Waiting for a responder...',
           SosStatus.responded => '${alert?.responderName ?? 'A responder'} is on the way',
+          SosStatus.arrived => '${alert?.responderName ?? 'A responder'} has arrived',
           SosStatus.closed => 'Marked resolved',
         };
         final statusColor = switch (status) {
           SosStatus.active => AppColors.amber,
           SosStatus.responded => AppColors.teal,
+          SosStatus.arrived => AppColors.resolvedFg,
           SosStatus.closed => AppColors.resolvedFg,
         };
 
