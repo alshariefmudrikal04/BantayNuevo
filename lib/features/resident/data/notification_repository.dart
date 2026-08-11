@@ -32,6 +32,16 @@ class NotificationRepository {
   /// keeps the resident's bell meaningful instead of spammy. Done
   /// client-side rather than via a Cloud Function trigger so it works
   /// without the Blaze plan (same reasoning as the offline-SMS path).
+  ///
+  /// Uses Timestamp.now() rather than FieldValue.serverTimestamp() on
+  /// purpose: the latter resolves to null in the optimistic local write
+  /// Firestore shows before the server round-trip completes, and since
+  /// streamForUser() orders by this field, a null value gets excluded
+  /// from the ordered result — the notification flashes in, then
+  /// disappears until the server confirms the real timestamp a moment
+  /// later. A client timestamp has no such gap. Trade-off: relies on the
+  /// device clock being roughly correct, which is fine for "which came
+  /// first" ordering at this granularity.
   Future<void> create({
     required String recipientId,
     required String message,
@@ -44,7 +54,7 @@ class NotificationRepository {
       'read': false,
       if (relatedReportId != null) 'relatedReportId': relatedReportId,
       if (relatedAlertId != null) 'relatedAlertId': relatedAlertId,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': Timestamp.now(),
     });
   }
 }

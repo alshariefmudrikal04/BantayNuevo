@@ -100,7 +100,12 @@ class ReportRepository {
       },
       'evidenceFiles': uploaded,
       'accessLog': <Map<String, dynamic>>[],
-      'createdAt': FieldValue.serverTimestamp(),
+      // createdAt uses Timestamp.now(), not FieldValue.serverTimestamp() —
+      // streamAllReports/streamRecentReports (here and on the tanod side)
+      // order by createdAt, and a server-timestamp write resolves to null
+      // locally until the round-trip completes, which makes a just-submitted
+      // report briefly vanish from both the resident's and tanod's lists.
+      'createdAt': Timestamp.now(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
 

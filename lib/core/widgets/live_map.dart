@@ -1,12 +1,15 @@
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 import '../theme/app_colors.dart';
+import '../config/barangay_boundary.dart';
 
-/// Free, no-API-key live map using OpenStreetMap.
-/// Displays the current user's location and, when available,
-/// the responder's location.
+/// Free, no-API-key live map — OpenStreetMap tiles via flutter_map.
+///
+/// Shows the current user's position always, and a responder's position
+/// once available (SOS accepted). Auto-fits bounds to keep both markers visible.
 class LiveMap extends StatelessWidget {
   const LiveMap({
     super.key,
@@ -16,6 +19,7 @@ class LiveMap extends StatelessWidget {
     this.otherLat,
     this.otherLng,
     this.otherLabel,
+    this.showBoundary = false,
   });
 
   final double selfLat;
@@ -26,38 +30,78 @@ class LiveMap extends StatelessWidget {
   final double? otherLng;
   final String? otherLabel;
 
-  bool get hasOther => otherLat != null && otherLng != null;
+  /// Draws caminoNuevoBoundary as an outline over the map.
+  ///
+  /// This is for visual reference only and does not affect the actual
+  /// geofence check.
+  final bool showBoundary;
+
+  bool get _hasOther => otherLat != null && otherLng != null;
 
   @override
   Widget build(BuildContext context) {
     final self = ll.LatLng(selfLat, selfLng);
-    final other = hasOther ? ll.LatLng(otherLat!, otherLng!) : null;
+
+    final other = _hasOther
+        ? ll.LatLng(otherLat!, otherLng!)
+        : null;
+
+    // FIX:
+    // LatLngBounds comes from flutter_map, so don't use ll.LatLngBounds.
+    final bounds = other != null
+        ? LatLngBounds.fromPoints([self, other])
+        : null;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(11),
       child: FlutterMap(
         options: MapOptions(
           initialCenter: self,
           initialZoom: 15,
+
+          // Automatically fit both markers when a responder exists.
+          initialCameraFit: bounds != null
+              ? CameraFit.bounds(
+                  bounds: bounds,
+                  padding: const EdgeInsets.all(48),
+                )
+              : null,
         ),
+
         children: [
           TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            urlTemplate:
+                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName:
                 'com.baranggaycaminonuevo.bantay_nuevo',
           ),
 
+          // Barangay boundary
+          if (showBoundary)
+            PolygonLayer(
+              polygons: [
+                Polygon(
+                  points: caminoNuevoBoundary,
+                  color: AppColors.navy.withOpacity(0.07),
+                  borderColor: AppColors.navy,
+                  borderStrokeWidth: 2,
+                ),
+              ],
+            ),
+
+          // Line between user and responder
           if (other != null)
             PolylineLayer(
               polylines: [
                 Polyline(
                   points: [self, other],
                   color: AppColors.teal,
-                  strokeWidth: 4,
+                  strokeWidth: 3,
                 ),
               ],
             ),
 
+          // Map markers
           MarkerLayer(
             markers: [
               Marker(
@@ -116,7 +160,7 @@ class _PinLabel extends StatelessWidget {
             borderRadius: BorderRadius.circular(6),
             boxShadow: [
               BoxShadow(
-                color: Colors.black26,
+                color: Colors.black.withOpacity(0.15),
                 blurRadius: 3,
               ),
             ],
@@ -133,7 +177,7 @@ class _PinLabel extends StatelessWidget {
         Icon(
           icon,
           color: color,
-          size: 28,
+          size: 26,
         ),
       ],
     );

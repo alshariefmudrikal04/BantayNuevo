@@ -12,6 +12,7 @@ import '../../../core/widgets/section_title.dart';
 import 'sos_screen.dart';
 import 'report_detail_screen.dart';
 import '../data/report_repository.dart';
+import '../../../core/utils/geofence.dart';
 
 const _incidentTypes = [
   'Physical injury / maltreatment',
@@ -113,6 +114,10 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
       setState(() => _submitError = 'Please describe what happened.');
       return;
     }
+    if (_isOutsideBoundary()) {
+      await _showOutOfBoundsDialog();
+      return;
+    }
     setState(() {
       _submitting = true;
       _submitError = null;
@@ -140,6 +145,34 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
         _submitError = 'Could not submit report: $e';
       });
     }
+  }
+
+  /// Hard block for reports — per project scope, this app only covers
+  /// Barangay Camino Nuevo. Skipped entirely if _position is null (GPS
+  /// unavailable) since that's already a separate, pre-existing warning
+  /// (_locationError below) — no need to double-punish a resident whose
+  /// GPS just failed to get a fix.
+  bool _isOutsideBoundary() {
+    if (_position == null) return false;
+    final result = checkBarangayBoundary(_position!.latitude, _position!.longitude);
+    return !result.withinBoundary;
+  }
+
+  Future<void> _showOutOfBoundsDialog() {
+    return showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Outside service area'),
+        content: const Text(
+          "Bantay Nuevo currently only covers Barangay Camino Nuevo. Your current location "
+          "appears to be outside that area, so this report can't be submitted from here. "
+          'Try again once you\'re back within the barangay.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK')),
+        ],
+      ),
+    );
   }
 
   String get _locationDisplay {

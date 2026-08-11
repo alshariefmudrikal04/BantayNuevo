@@ -24,6 +24,12 @@ class SosRepository {
   /// (Prompt 4.5) picks this up and handles push-notifying tanod/police plus
   /// texting emergency contacts — nothing else to do client-side.
   /// Returns the new alert's id, needed for the live-tracking view.
+  /// createdAt uses Timestamp.now() rather than FieldValue.serverTimestamp()
+  /// — the tanod's streamOpenAlerts() orders by createdAt, and a
+  /// server-timestamp write shows up locally as null for a moment before
+  /// the server round-trip resolves, which makes brand-new alerts briefly
+  /// disappear from the active list right after creation. Not acceptable
+  /// for something this time-critical.
   Future<String> createOnlineAlert({
     required String residentId,
     required String escalationTarget, // "auto" | "tanod" | "pnp"
@@ -40,7 +46,7 @@ class SosRepository {
       'deliveryMethod': 'app',
       'contactsNotified': <String>[],
       'status': 'active',
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': Timestamp.now(),
     });
     return docRef.id;
   }
@@ -63,7 +69,7 @@ class SosRepository {
         'deliveryMethod': 'sms',
         'contactsNotified': <String>[],
         'status': 'active',
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': Timestamp.now(),
       });
     } catch (_) {
       // Expected when truly offline — the SMS itself is what matters here.
@@ -78,6 +84,25 @@ class SosRepository {
         .map((d) => d.data()['phone'] as String? ?? '')
         .where((phone) => phone.isNotEmpty)
         .toList();
+  }
+
+  /// Looks up whether this resident already has a non-closed alert —
+  /// called from SosScreen.initState() so reopening the SOS screen (after
+  /// backing out with the device back button, switching apps and getting
+  /// killed by the OS, etc.) resumes live tracking instead of always
+  /// resetting to the panic button. Firestore is the source of truth here
+  /// on purpose: the alert's real status doesn't live in this screen's
+  /// local state, so anything that can dispose that state (navigation,
+  /// process death) shouldn't be able to silently "lose" an active SOS.
+  Future<SosAlertModel?> fetchActiveAlert(String residentId) async {
+    final snap = await _alerts
+        .where('residentId', isEqualTo: residentId)
+        .orderBy('createdAt', descending: true)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return null;
+    final alert = SosAlertModel.fromFirestore(snap.docs.first.data(), snap.docs.first.id);
+    return alert.status == SosStatus.closed ? null : alert;
   }
 
   /// Live stream of one alert — the resident's live-tracking view watches

@@ -16,6 +16,7 @@ import '../../../core/widgets/live_map.dart';
 import '../data/sos_repository.dart';
 import '../widgets/panic_button.dart';
 import '../widgets/escalate_row.dart';
+import '../../../core/utils/geofence.dart';
 
 class SosScreen extends StatefulWidget {
   const SosScreen({super.key, required this.user});
@@ -45,6 +46,23 @@ class _SosScreenState extends State<SosScreen> {
     Connectivity().onConnectivityChanged.listen((results) {
       if (mounted) setState(() => _online = !results.contains(ConnectivityResult.none));
     });
+    _resumeActiveAlertIfAny();
+  }
+
+  /// Checks Firestore for an alert this resident already has open, rather
+  /// than assuming "no active alert" just because this particular screen
+  /// instance is fresh — see fetchActiveAlert's doc comment for why.
+  Future<void> _resumeActiveAlertIfAny() async {
+    final alert = await _sosRepository.fetchActiveAlert(widget.user.uid);
+    if (!mounted || alert == null) return;
+    setState(() {
+      _activeAlertId = alert.id;
+      _alertStream = _sosRepository.streamAlert(alert.id);
+    });
+    // Resumes sending this resident's own live location too — otherwise a
+    // resumed alert would show correctly but silently stop updating where
+    // the resident actually is.
+    _startLiveLocationUpdates(alert.id);
   }
 
   @override
@@ -89,6 +107,18 @@ class _SosScreenState extends State<SosScreen> {
       _showSnack('Could not get your location — check location permissions and try again.', isError: true);
       setState(() => _busy = false);
       return;
+    }
+
+    // Warn-only, deliberately never blocking — an actual emergency near the
+    // barangay line shouldn't get refused just because GPS drifted a few
+    // meters past it, or because someone fled just past the boundary while
+    // being chased. Tanod/police still see the exact coordinates and can
+    // judge for themselves whether to respond. Contrast with the report
+    // form, which does hard-block (see report_form_screen.dart) — that's a
+    // non-urgent submission where waiting until back in-barangay is fine.
+    final geofence = checkBarangayBoundary(position.latitude, position.longitude);
+    if (!geofence.withinBoundary) {
+      _showSnack("You appear to be outside Barangay Camino Nuevo's coverage area — sending anyway.");
     }
 
     try {
@@ -192,19 +222,32 @@ class _SosScreenState extends State<SosScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Emergency SOS')),
-      body: SafeArea(
-        child: Column(
-          children: [
-            if (_activeAlertId == null) NetBanner(isOnline: _online),
-            Expanded(
-              child: _activeAlertId != null
-                  ? _buildTrackingView(context)
-                  : _buildPanicView(context),
-            ),
-          ],
+    return PopScope(
+      // Only intercept back navigation while an alert is actually active —
+      // otherwise this would block the normal back button on the panic-
+      // button view for no reason. Prevents someone from thinking they
+      // cancelled their SOS by backing out of the screen, when the alert
+      // (and the resident's live location updates) are actually still
+      // running per fetchActiveAlert's resume logic above.
+      canPop: _activeAlertId == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _showSnack("Your SOS is still active. Tap \"I'm safe now\" below to cancel it.");
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        appBar: AppBar(title: const Text('Emergency SOS')),
+        body: SafeArea(
+          child: Column(
+            children: [
+              if (_activeAlertId == null) NetBanner(isOnline: _online),
+              Expanded(
+                child: _activeAlertId != null
+                    ? _buildTrackingView(context)
+                    : _buildPanicView(context),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -289,6 +332,7 @@ class _SosScreenState extends State<SosScreen> {
                   otherLat: alert?.responderLat,
                   otherLng: alert?.responderLng,
                   otherLabel: alert?.responderName,
+                  showBoundary: true,
                 ),
               ),
               const SizedBox(height: 12),
