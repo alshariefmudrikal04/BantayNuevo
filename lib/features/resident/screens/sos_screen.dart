@@ -191,12 +191,13 @@ class _SosScreenState extends State<SosScreen> {
 
   Future<void> _sendOfflineSms({required String escalationTarget, required Position position}) async {
     final numbers = <String>{
+      ...await _sosRepository.fetchEmergencyContactNumbers(widget.user.uid),
       ...await _sosRepository.fetchPhoneNumbersForRole('tanod'),
       if (escalationTarget == 'pnp') ...await _sosRepository.fetchPhoneNumbersForRole('police'),
     };
 
     if (numbers.isEmpty) {
-      _showSnack('No responder numbers on file — could not prepare the SMS.', isError: true);
+      _showSnack('No responder or emergency contact numbers on file — could not prepare the SMS.', isError: true);
       return;
     }
 

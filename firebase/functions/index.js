@@ -8,35 +8,61 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // Set these once with:
-//   firebase functions:secrets:set SEMAPHORE_API_KEY
-//   firebase functions:secrets:set SEMAPHORE_SENDER_NAME
-// (Semaphore is a PH-based SMS gateway — see semaphore.co. Free trial
-// credits are enough for testing/defense demo purposes.)
-const semaphoreApiKey = defineSecret("SEMAPHORE_API_KEY");
-const semaphoreSenderName = defineSecret("SEMAPHORE_SENDER_NAME");
+//   firebase functions:secrets:set PHILSMS_API_KEY
+//   firebase functions:secrets:set PHILSMS_SENDER_ID
+// (PhilSMS is a PH-based SMS gateway — see philsms.com. sender_id is
+// alphanumeric, max 11 characters, e.g. "BantayNuevo" — exactly 11.)
+const philSmsApiKey = defineSecret("PHILSMS_API_KEY");
+const philSmsSenderId = defineSecret("PHILSMS_SENDER_ID");
 
 /**
- * Sends an SMS via the Semaphore API. Fails silently (logs only) so one bad
- * number never blocks the rest of the notification fan-out.
+ * Numbers get stored however a resident typed them (09171234567,
+ * +639171234567, 639171234567, ...) — client-side normalization only
+ * strips spaces/dashes, it doesn't enforce one format. PhilSMS's API
+ * expects "639171234567": country code, no leading +, no leading 0. This
+ * converts whatever's on file into that shape rather than assuming it's
+ * already right, so a number saved in any common PH format still sends.
  */
-async function sendSemaphoreSms(apiKey, senderName, numbers, message) {
+function toPhilSmsFormat(rawNumber) {
+  const digits = rawNumber.replace(/[^0-9]/g, "");
+  if (digits.startsWith("63") && digits.length === 12) return digits;
+  if (digits.startsWith("0") && digits.length === 11) return `63${digits.slice(1)}`;
+  if (digits.startsWith("9") && digits.length === 10) return `63${digits}`;
+  return digits; // best effort — logged downstream if PhilSMS rejects it
+}
+
+/**
+ * Sends an SMS via the PhilSMS API. Fails silently (logs only) so one bad
+ * number never blocks the rest of the notification fan-out. PhilSMS
+ * accepts multiple recipients as one comma-joined string in a single
+ * request (same "one message, many numbers" shape Semaphore used, just a
+ * different API surface — JSON body + Bearer auth instead of form-encoded
+ * + apikey field).
+ */
+async function sendPhilSmsMessage(apiKey, senderId, numbers, message) {
   if (!numbers || numbers.length === 0) return;
+  const recipients = numbers.map(toPhilSmsFormat).join(",");
   try {
-    const res = await fetch("https://api.semaphore.co/api/v4/messages", {
+    const res = await fetch("https://dashboard.philsms.com/api/v3/sms/send", {
       method: "POST",
-      headers: {"Content-Type": "application/x-www-form-urlencoded"},
-      body: new URLSearchParams({
-        apikey: apiKey,
-        number: numbers.join(","),
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        recipient: recipients,
+        sender_id: senderId,
+        type: "plain",
         message,
-        sendername: senderName,
       }),
     });
-    if (!res.ok) {
-      logger.error("Semaphore SMS failed", {status: res.status, body: await res.text()});
+    const body = await res.json().catch(() => null);
+    if (!res.ok || (body && body.status === "error")) {
+      logger.error("PhilSMS send failed", {status: res.status, body});
     }
   } catch (err) {
-    logger.error("Semaphore SMS threw", err);
+    logger.error("PhilSMS send threw", err);
   }
 }
 
@@ -51,7 +77,7 @@ async function sendSemaphoreSms(apiKey, senderName, numbers, message) {
  *   4. Logs which contacts were successfully texted back onto the alert doc.
  */
 exports.onSosCreated = onDocumentCreated(
-  {document: "sos_alerts/{alertId}", secrets: [semaphoreApiKey, semaphoreSenderName]},
+  {document: "sos_alerts/{alertId}", secrets: [philSmsApiKey, philSmsSenderId]},
   async (event) => {
     const snap = event.data;
     if (!snap) return;
@@ -98,12 +124,12 @@ exports.onSosCreated = onDocumentCreated(
         .where("residentId", "==", alert.residentId)
         .get();
     const contactNumbers = contactsSnap.docs.map((d) => d.data().phone).filter(Boolean);
-    await sendSemaphoreSms(semaphoreApiKey.value(), semaphoreSenderName.value(), contactNumbers, smsMessage);
+    await sendPhilSmsMessage(philSmsApiKey.value(), philSmsSenderId.value(), contactNumbers, smsMessage);
 
     // 3. Backup SMS to tanod/police (same message the offline on-device path
     // in sos_screen.dart sends, kept consistent).
     const responderNumbers = respondersSnap.docs.map((d) => d.data().phone).filter(Boolean);
-    await sendSemaphoreSms(semaphoreApiKey.value(), semaphoreSenderName.value(), responderNumbers, smsMessage);
+    await sendPhilSmsMessage(philSmsApiKey.value(), philSmsSenderId.value(), responderNumbers, smsMessage);
 
     // 4. Log who got texted, for the resident-facing access/notify log.
     await snap.ref.update({

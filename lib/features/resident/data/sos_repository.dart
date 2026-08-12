@@ -8,10 +8,10 @@ import '../../../models/sos_alert_model.dart';
 /// location while the alert is active, and watching for a responder's
 /// location once a tanod/police accepts.
 ///
-/// Note: emergency_contacts lookup isn't wired in here yet — that collection
-/// is built in Prompt 7. Once it exists, add a fetchEmergencyContactNumbers()
-/// method here and include those numbers in both the online Cloud Function
-/// (Prompt 4.5) and the offline SMS list below.
+/// Emergency contact lookup (fetchEmergencyContactNumbers below) mirrors
+/// what the online path's onSosCreated Cloud Function already does via
+/// PhilSMS — this is what lets the offline SMS path reach the same
+/// numbers when there's no internet at all to trigger that function.
 class SosRepository {
   SosRepository({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
 
@@ -80,6 +80,19 @@ class SosRepository {
   /// offline SMS. role is "tanod" or "police".
   Future<List<String>> fetchPhoneNumbersForRole(String role) async {
     final snap = await _users.where('role', isEqualTo: role).get();
+    return snap.docs
+        .map((d) => d.data()['phone'] as String? ?? '')
+        .where((phone) => phone.isNotEmpty)
+        .toList();
+  }
+
+  /// This resident's saved emergency contact numbers — the same numbers
+  /// the online path's onSosCreated Cloud Function already texts via
+  /// Semaphore. Used here so the offline on-device SMS path (sos_screen.dart)
+  /// reaches them too, since AGENTS.md §2 treats this as their ONLY channel
+  /// regardless of whether the resident has internet at the moment.
+  Future<List<String>> fetchEmergencyContactNumbers(String residentId) async {
+    final snap = await _firestore.collection('emergency_contacts').where('residentId', isEqualTo: residentId).get();
     return snap.docs
         .map((d) => d.data()['phone'] as String? ?? '')
         .where((phone) => phone.isNotEmpty)
