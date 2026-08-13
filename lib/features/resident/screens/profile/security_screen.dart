@@ -7,6 +7,8 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/toggle_row.dart';
 import '../../../../core/widgets/section_title.dart';
+import '../../../../core/widgets/list_item_tile.dart';
+import 'set_pin_screen.dart';
 
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
@@ -23,6 +25,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
   bool _biometric = false;
   bool _autoLock = false;
   bool _biometricAvailable = false;
+  bool _hasPin = false;
   bool _loading = true;
 
   @override
@@ -35,6 +38,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
     final pin = await _storage.read(key: 'security_pin_on_open');
     final bio = await _storage.read(key: 'security_biometric');
     final auto = await _storage.read(key: 'security_auto_lock');
+    final pinHash = await _storage.read(key: 'security_pin_hash');
 
     var biometricAvailable = false;
     try {
@@ -49,11 +53,35 @@ class _SecurityScreenState extends State<SecurityScreen> {
       _biometric = bio == 'true';
       _autoLock = auto == 'true';
       _biometricAvailable = biometricAvailable;
+      _hasPin = pinHash != null;
       _loading = false;
     });
   }
 
   Future<void> _set(String key, bool value) => _storage.write(key: key, value: value.toString());
+
+  /// Pushes SetPinScreen and returns whether a PIN now exists — used both
+  /// when first turning on "Require PIN on open" and for the standalone
+  /// "Change PIN" row below.
+  Future<bool> _promptSetPin() async {
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const SetPinScreen()),
+    );
+    if (created == true && mounted) setState(() => _hasPin = true);
+    return created == true;
+  }
+
+  Future<void> _onPinOnOpenChanged(bool value) async {
+    if (value && !_hasPin) {
+      // Turning this on for the first time needs an actual PIN to check
+      // against — send them to create one first, and only flip the toggle
+      // if they actually finish that flow. Backing out leaves it off.
+      final created = await _promptSetPin();
+      if (!created) return;
+    }
+    setState(() => _pinOnOpen = value);
+    _set('security_pin_on_open', value);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,18 +93,15 @@ class _SecurityScreenState extends State<SecurityScreen> {
           : ListView(
               padding: const EdgeInsets.all(AppSpacing.lg),
               children: [
-                const SectionTitle('App lock', topPadding: 0),
+                const SectionTitle('Reports & Evidence lock', topPadding: 0),
                 AppCard(
                   child: Column(
                     children: [
                       ToggleRow(
-                        label: 'Require PIN on open',
-                        description: 'Protects the app if your phone is unlocked',
+                        label: 'Require PIN to view Reports & Evidence',
+                        description: "Protects your report history if someone else has your phone",
                         value: _pinOnOpen,
-                        onChanged: (v) {
-                          setState(() => _pinOnOpen = v);
-                          _set('security_pin_on_open', v);
-                        },
+                        onChanged: _onPinOnOpenChanged,
                       ),
                       ToggleRow(
                         label: 'Biometric unlock',
@@ -98,8 +123,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
                 const SectionTitle('Session'),
                 AppCard(
                   child: ToggleRow(
-                    label: 'Auto-lock after 1 min idle',
-                    description: 'Re-locks app in background',
+                    label: 'Re-lock after 1 min idle',
+                    description: 'Re-checks PIN if you leave and come back',
                     value: _autoLock,
                     onChanged: (v) {
                       setState(() => _autoLock = v);
@@ -108,6 +133,18 @@ class _SecurityScreenState extends State<SecurityScreen> {
                     isLast: true,
                   ),
                 ),
+                if (_hasPin) ...[
+                  const SectionTitle('PIN'),
+                  AppCard(
+                    child: ListItemTile(
+                      title: 'Change PIN',
+                      subtitle: 'Set a new 4-digit PIN',
+                      showChevron: true,
+                      isLast: true,
+                      onTap: () => _promptSetPin(),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   'These settings are stored securely on this device only — they don\'t sync across devices.',

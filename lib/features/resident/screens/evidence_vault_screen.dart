@@ -5,6 +5,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/section_title.dart';
 import '../data/report_repository.dart';
+import '../../../core/widgets/sensitive_content_gate.dart';
 
 /// View-only by design (AGENTS.md §8) — this screen must never gain a
 /// delete or download action, that's what preserves the evidence chain of
@@ -41,9 +42,10 @@ class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Evidence vault')),
+    return SensitiveContentGate(
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        appBar: AppBar(title: const Text('Evidence vault')),
       body: StreamBuilder<ReportModel>(
         stream: _reportStream,
         builder: (context, snapshot) {
@@ -134,6 +136,7 @@ class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }

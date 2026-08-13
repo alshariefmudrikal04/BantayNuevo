@@ -10,6 +10,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/app_button.dart';
 import '../data/report_repository.dart';
 import 'evidence_vault_screen.dart';
+import '../../../core/widgets/sensitive_content_gate.dart';
 
 class ReportDetailScreen extends StatefulWidget {
   const ReportDetailScreen({super.key, required this.reportId});
@@ -42,9 +43,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Report detail')),
+    return SensitiveContentGate(
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        appBar: AppBar(title: const Text('Report detail')),
       body: StreamBuilder<ReportModel>(
         stream: _reportStream,
         builder: (context, snapshot) {
@@ -106,6 +108,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }

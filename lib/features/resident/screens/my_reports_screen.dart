@@ -8,6 +8,7 @@ import '../../../core/widgets/list_item_tile.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/report_repository.dart';
 import 'report_detail_screen.dart';
+import '../../../core/widgets/sensitive_content_gate.dart';
 
 class MyReportsScreen extends StatefulWidget {
   const MyReportsScreen({super.key, required this.user});
@@ -30,9 +31,10 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('My reports')),
+    return SensitiveContentGate(
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        appBar: AppBar(title: const Text('My reports')),
       body: StreamBuilder<List<ReportModel>>(
         stream: _reportsStream,
         builder: (context, snapshot) {
@@ -82,6 +84,7 @@ class _MyReportsScreenState extends State<MyReportsScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }

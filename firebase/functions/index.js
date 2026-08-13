@@ -12,8 +12,8 @@ const db = admin.firestore();
 //   firebase functions:secrets:set PHILSMS_SENDER_ID
 // (PhilSMS is a PH-based SMS gateway — see philsms.com. sender_id is
 // alphanumeric, max 11 characters, e.g. "BantayNuevo" — exactly 11.)
-const philSmsApiKey = defineSecret("PHILSMS_API_KEY");
-const philSmsSenderId = defineSecret("PHILSMS_SENDER_ID");
+const philSmsApiKey = defineSecret("3358|EZRtExe55kjwx3Vj2aDhLbkEGx4quthHUImlOMJS774a7522");
+const philSmsSenderId = defineSecret("PhilSMS");
 
 /**
  * Numbers get stored however a resident typed them (09171234567,
