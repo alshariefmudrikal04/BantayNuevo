@@ -3,13 +3,31 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 
-/// Circular SOS panic button — radial red gradient with a soft halo ring,
-/// per AGENTS.md §4 shape spec (150px diameter, 8px halo).
+/// Circular SOS button — radial red gradient with a soft halo ring, per
+/// AGENTS.md §4 shape spec (150px diameter, 8px halo). Reused in two
+/// places with different meanings, distinguished by label/icon:
+///   - sos_screen.dart: PANIC / HOLD TO SEND — tapping this directly
+///     triggers _trigger(), sends the real alert immediately.
+///   - resident_home_screen.dart: SOS / TAP TO SEND — tapping this just
+///     navigates into SosScreen, it does NOT send anything itself. A big
+///     always-visible red circle on the home screen that fires instantly
+///     on any accidental tap would be a real false-alarm risk, so Home's
+///     version is an entry point, not a trigger.
 class PanicButton extends StatelessWidget {
-  const PanicButton({super.key, required this.onPressed, this.busy = false});
+  const PanicButton({
+    super.key,
+    required this.onPressed,
+    this.busy = false,
+    this.label = 'PANIC',
+    this.sublabel = 'HOLD TO SEND',
+    this.icon,
+  });
 
   final VoidCallback? onPressed;
   final bool busy;
+  final String label;
+  final String sublabel;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -50,9 +68,13 @@ class PanicButton extends StatelessWidget {
                   : Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('PANIC', style: AppTypography.display(fontSize: 20, color: Colors.white)),
+                        if (icon != null) ...[
+                          Icon(icon, color: Colors.white, size: 26),
+                          const SizedBox(height: 4),
+                        ],
+                        Text(label, style: AppTypography.display(fontSize: 20, color: Colors.white)),
                         const SizedBox(height: 2),
-                        Text('HOLD TO SEND', style: AppTypography.mono(fontSize: 9, color: Colors.white.withOpacity(0.9))),
+                        Text(sublabel, style: AppTypography.mono(fontSize: 9, color: Colors.white.withOpacity(0.9))),
                       ],
                     ),
             ),

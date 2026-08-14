@@ -13,6 +13,7 @@ import 'emergency_contacts_screen.dart';
 import 'security_screen.dart';
 import 'privacy_screen.dart';
 import '../my_reports_screen.dart';
+import '../../../resources/screens/resources_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.user});
@@ -32,7 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = widget.user;
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
@@ -117,6 +118,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+
+          const SectionTitle('Support'),
+          AppCard(
+            padding: const EdgeInsets.symmetric(horizontal: 13),
+            child: ListItemTile(
+              title: 'Hotlines & safety guides',
+              subtitle: 'Emergency numbers and resources',
+              showChevron: true,
+              isLast: true,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ResourcesScreen()),
+              ),
             ),
           ),
 
