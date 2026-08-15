@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
 import '../../../core/theme/app_colors.dart';
@@ -10,14 +8,23 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_button.dart';
-import '../../../core/widgets/section_title.dart';
-import '../../../core/widgets/net_banner.dart';
 import '../../../core/widgets/live_map.dart';
 import '../data/sos_repository.dart';
 import '../widgets/panic_button.dart';
-import '../widgets/escalate_row.dart';
 import '../../../core/utils/geofence.dart';
 
+/// Per the thesis design: residents never choose tanod vs. police directly
+/// — every SOS always routes to tanod first (escalationTarget is always
+/// "tanod"). Requesting police involvement is tanod's own call to make
+/// after reviewing the alert, not something exposed here.
+///
+/// Also per the thesis scope: there is no offline/on-device SMS fallback.
+/// SOS is always: write the alert to Firestore -> onSosCreated Cloud
+/// Function -> PhilSMS texts every saved emergency contact with the
+/// resident's location and a distress message, same call also used as a
+/// backup ping to tanod. If there's genuinely no internet, the alert
+/// can't be created at all — see _sendDistressNow()'s error handling
+/// rather than any client-side SMS composer fallback.
 class SosScreen extends StatefulWidget {
   const SosScreen({super.key, required this.user});
 
@@ -29,23 +36,28 @@ class SosScreen extends StatefulWidget {
 
 class _SosScreenState extends State<SosScreen> {
   final _sosRepository = SosRepository();
-  bool _online = true;
   bool _busy = false;
 
-  // Set once an online alert is created — switches the screen into the
+  // Set once an alert is created — switches the screen into the
   // live-tracking view. Null means "no active alert, show the panic button".
   String? _activeAlertId;
   Stream<SosAlertModel>? _alertStream;
   Position? _lastKnownPosition;
   Timer? _locationTimer;
 
+  // Countdown state — pressing the panic button does NOT send anything
+  // immediately. It starts a 10-second window the resident can cancel out
+  // of (e.g. an accidental press). Nothing is written to Firestore, no SMS
+  // is sent, and no location is captured or shown until the countdown
+  // actually completes — see _sendDistressNow().
+  bool _countingDown = false;
+  int _secondsLeft = _countdownSeconds;
+  Timer? _countdownTimer;
+  static const _countdownSeconds = 10;
+
   @override
   void initState() {
     super.initState();
-    _checkConnectivity();
-    Connectivity().onConnectivityChanged.listen((results) {
-      if (mounted) setState(() => _online = !results.contains(ConnectivityResult.none));
-    });
     _resumeActiveAlertIfAny();
   }
 
@@ -59,21 +71,14 @@ class _SosScreenState extends State<SosScreen> {
       _activeAlertId = alert.id;
       _alertStream = _sosRepository.streamAlert(alert.id);
     });
-    // Resumes sending this resident's own live location too — otherwise a
-    // resumed alert would show correctly but silently stop updating where
-    // the resident actually is.
     _startLiveLocationUpdates(alert.id);
   }
 
   @override
   void dispose() {
     _locationTimer?.cancel();
+    _countdownTimer?.cancel();
     super.dispose();
-  }
-
-  Future<void> _checkConnectivity() async {
-    final results = await Connectivity().checkConnectivity();
-    if (mounted) setState(() => _online = !results.contains(ConnectivityResult.none));
   }
 
   Future<Position?> _captureLocation() async {
@@ -99,7 +104,47 @@ class _SosScreenState extends State<SosScreen> {
     }
   }
 
-  Future<void> _trigger(String escalationTarget) async {
+  /// Tapping the panic button lands here — starts the 10s window, doesn't
+  /// send anything yet.
+  void _startCountdown() {
+    if (_countingDown || _busy) return;
+    setState(() {
+      _countingDown = true;
+      _secondsLeft = _countdownSeconds;
+    });
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsLeft <= 1) {
+        timer.cancel();
+        setState(() {
+          _countingDown = false;
+          _secondsLeft = _countdownSeconds;
+        });
+        _sendDistressNow();
+      } else {
+        setState(() => _secondsLeft -= 1);
+      }
+    });
+  }
+
+  void _cancelCountdown() {
+    _countdownTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _countingDown = false;
+      _secondsLeft = _countdownSeconds;
+    });
+    _showSnack('SOS cancelled — nothing was sent.');
+  }
+
+  /// The real send — only ever reached once the 10-second countdown runs
+  /// out without being cancelled. This writes the alert doc, which is what
+  /// triggers onSosCreated server-side to fan out PhilSMS texts to every
+  /// saved emergency contact (with location + a distress message) and a
+  /// backup SMS to tanod, on top of the in-app push/live-tracking. There is
+  /// no client-side SMS composer fallback — if this write fails (e.g. no
+  /// internet), that's surfaced as an error, not silently substituted with
+  /// something else.
+  Future<void> _sendDistressNow() async {
     setState(() => _busy = true);
     final position = await _captureLocation();
 
@@ -112,45 +157,38 @@ class _SosScreenState extends State<SosScreen> {
     // Warn-only, deliberately never blocking — an actual emergency near the
     // barangay line shouldn't get refused just because GPS drifted a few
     // meters past it, or because someone fled just past the boundary while
-    // being chased. Tanod/police still see the exact coordinates and can
-    // judge for themselves whether to respond. Contrast with the report
-    // form, which does hard-block (see report_form_screen.dart) — that's a
-    // non-urgent submission where waiting until back in-barangay is fine.
+    // being chased. Tanod still sees the exact coordinates and can judge
+    // for themselves whether to respond.
     final geofence = checkBarangayBoundary(position.latitude, position.longitude);
     if (!geofence.withinBoundary) {
       _showSnack("You appear to be outside Barangay Camino Nuevo's coverage area — sending anyway.");
     }
 
     try {
-      if (_online) {
-        final alertId = await _sosRepository
-            .createOnlineAlert(
-              residentId: widget.user.uid,
-              escalationTarget: escalationTarget,
-              lat: position.latitude,
-              lng: position.longitude,
-            )
-            .timeout(
-              const Duration(seconds: 10),
-              onTimeout: () => throw TimeoutException('Could not reach Firestore'),
-            );
+      final alertId = await _sosRepository
+          .createOnlineAlert(
+            residentId: widget.user.uid,
+            escalationTarget: 'tanod',
+            lat: position.latitude,
+            lng: position.longitude,
+          )
+          .timeout(
+            const Duration(seconds: 12),
+            onTimeout: () => throw TimeoutException('Could not reach the server'),
+          );
 
-        setState(() {
-          _activeAlertId = alertId;
-          _alertStream = _sosRepository.streamAlert(alertId);
-          _lastKnownPosition = position;
-        });
-        _startLiveLocationUpdates(alertId);
-        _showSnack('SOS sent — Tanod is being notified.');
-      } else {
-        await _sendOfflineSms(escalationTarget: escalationTarget, position: position);
-        await _sosRepository.logOfflineAlertAttempt(
-          residentId: widget.user.uid,
-          escalationTarget: escalationTarget,
-          lat: position.latitude,
-          lng: position.longitude,
-        );
-      }
+      setState(() {
+        _activeAlertId = alertId;
+        _alertStream = _sosRepository.streamAlert(alertId);
+        _lastKnownPosition = position;
+      });
+      _startLiveLocationUpdates(alertId);
+      _showSnack('Distress signal sent — Tanod and your emergency contacts are being notified.');
+    } on TimeoutException {
+      _showSnack(
+        'Could not send SOS — no internet connection. Connect to WiFi or mobile data and try again.',
+        isError: true,
+      );
     } catch (e) {
       _showSnack('Could not send SOS: $e', isError: true);
     } finally {
@@ -189,31 +227,6 @@ class _SosScreenState extends State<SosScreen> {
     _showSnack('Marked resolved.');
   }
 
-  Future<void> _sendOfflineSms({required String escalationTarget, required Position position}) async {
-    final numbers = <String>{
-      ...await _sosRepository.fetchEmergencyContactNumbers(widget.user.uid),
-      ...await _sosRepository.fetchPhoneNumbersForRole('tanod'),
-      if (escalationTarget == 'pnp') ...await _sosRepository.fetchPhoneNumbersForRole('police'),
-    };
-
-    if (numbers.isEmpty) {
-      _showSnack('No responder or emergency contact numbers on file — could not prepare the SMS.', isError: true);
-      return;
-    }
-
-    final message = '[EMERGENCY - Bantay Nuevo] ${widget.user.name} needs help. '
-        'Location: https://maps.google.com/?q=${position.latitude},${position.longitude}';
-
-    final uri = Uri(scheme: 'sms', path: numbers.join(','), queryParameters: {'body': message});
-
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-      _showSnack('SMS ready — confirm send in your messaging app.');
-    } else {
-      _showSnack('Could not open your SMS app.', isError: true);
-    }
-  }
-
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -224,31 +237,29 @@ class _SosScreenState extends State<SosScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // Only intercept back navigation while an alert is actually active —
-      // otherwise this would block the normal back button on the panic-
-      // button view for no reason. Prevents someone from thinking they
-      // cancelled their SOS by backing out of the screen, when the alert
-      // (and the resident's live location updates) are actually still
-      // running per fetchActiveAlert's resume logic above.
-      canPop: _activeAlertId == null,
+      // Blocks back navigation both while an alert is active AND during the
+      // countdown itself — otherwise backing out mid-countdown would leave
+      // the Timer running invisibly on a screen the resident thinks they
+      // left, and it would still send a few seconds later with no
+      // indication why.
+      canPop: _activeAlertId == null && !_countingDown,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        _showSnack("Your SOS is still active. Tap \"I'm safe now\" below to cancel it.");
+        if (_countingDown) {
+          _showSnack('Sending in $_secondsLeft s — tap Cancel below to stop it.');
+        } else {
+          _showSnack("Your SOS is still active. Tap \"I'm safe now\" below to cancel it.");
+        }
       },
       child: Scaffold(
         backgroundColor: AppColors.bg,
         appBar: AppBar(title: const Text('Emergency SOS')),
         body: SafeArea(
-          child: Column(
-            children: [
-              if (_activeAlertId == null) NetBanner(isOnline: _online),
-              Expanded(
-                child: _activeAlertId != null
-                    ? _buildTrackingView(context)
-                    : _buildPanicView(context),
-              ),
-            ],
-          ),
+          child: _activeAlertId != null
+              ? _buildTrackingView(context)
+              : _countingDown
+                  ? _buildCountdownView(context)
+                  : _buildPanicView(context),
         ),
       ),
     );
@@ -260,27 +271,61 @@ class _SosScreenState extends State<SosScreen> {
       child: Column(
         children: [
           Text(
-            _online
-                ? 'Live GPS shared with Tanod/police in-app. Emergency contact texting arrives once that\'s wired up.'
-                : 'No internet detected — pressing below opens a pre-filled text to your Tanod (and police, if escalated).',
+            'Pressing below starts a 10-second countdown before Tanod is alerted — plenty of time to cancel '
+            'if it was an accident.',
             textAlign: TextAlign.center,
             style: AppTypography.bodySoft(fontSize: 12),
           ),
           const SizedBox(height: 20),
-          PanicButton(busy: _busy, onPressed: () => _trigger('auto')),
+          PanicButton(busy: _busy, onPressed: _startCountdown),
           const SizedBox(height: 8),
-          Text('Defaults to nearest Tanod · officials notified', style: AppTypography.mono(fontSize: 10)),
-          const SectionTitle('Or escalate directly'),
-          EscalateRow(
-            onTanod: _busy ? () {} : () => _trigger('tanod'),
-            onPolice: _busy ? () {} : () => _trigger('pnp'),
-          ),
-          const SizedBox(height: 4),
+          Text('Tanod is notified · 10s to cancel', style: AppTypography.mono(fontSize: 10)),
+          const SizedBox(height: 16),
           AppCard(
             child: Text(
-              'Your emergency contacts are texted on every SOS once Profile → Emergency contacts is set up (Prompt 7) — they don\'t use the app, so SMS is the only way to reach them.',
+              'Once sent, your emergency contacts are texted automatically with your location — add them under '
+              "Profile → Emergency contacts if you haven't yet, since they don't use the app.",
               style: AppTypography.bodySoft(fontSize: 11),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shown for the 10s window between tapping the panic button and the
+  /// signal actually sending. Deliberately does NOT show a map or any
+  /// location — that only appears once _sendDistressNow() actually runs.
+  Widget _buildCountdownView(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('Sending distress signal to Tanod in', style: AppTypography.body(fontSize: 14, color: AppColors.inkSoft)),
+          const SizedBox(height: 16),
+          Container(
+            width: 130,
+            height: 130,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.urgentLight,
+              border: Border.all(color: AppColors.urgent, width: 3),
+            ),
+            child: Center(
+              child: Text('$_secondsLeft', style: AppTypography.display(fontSize: 48, color: AppColors.urgent)),
+            ),
+          ),
+          const SizedBox(height: 28),
+          SizedBox(
+            width: double.infinity,
+            child: AppButton(label: 'Cancel', variant: AppButtonVariant.outline, onPressed: _cancelCountdown),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Nothing has been sent yet — your location is not shared until this reaches zero.',
+            textAlign: TextAlign.center,
+            style: AppTypography.mono(fontSize: 10, color: AppColors.inkSoft),
           ),
         ],
       ),

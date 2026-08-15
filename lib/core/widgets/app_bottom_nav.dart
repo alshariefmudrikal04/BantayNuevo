@@ -30,22 +30,32 @@ class AppBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasRaised = items.any((i) => i.isRaised);
     return Container(
-      height: hasRaised ? 111 : 56,
       decoration: const BoxDecoration(
         color: AppColors.panel,
         border: Border(top: BorderSide(color: AppColors.line)),
       ),
       child: SafeArea(
         top: false,
-        child: Row(
-          children: [
-            for (int i = 0; i < items.length; i++)
-              Expanded(
-                child: items[i].isRaised ? _raisedItem(i) : _standardItem(i),
-              ),
-          ],
+        // No fixed height on the outer Container — that was the actual
+        // overflow bug. A hard-coded height (72/56) doesn't know how much
+        // bottom system inset SafeArea needs to reserve on a given device
+        // (gesture nav vs. 3-button nav vs. none), so on devices with a
+        // larger inset, the content had less room than it needed and
+        // overflowed by however many pixels were missing. Letting the
+        // Container size itself to its child (content height + SafeArea's
+        // own inset) fixes this on every device, not just the one being
+        // tested on.
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              for (int i = 0; i < items.length; i++)
+                Expanded(
+                  child: items[i].isRaised ? _raisedItem(i) : _standardItem(i),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -54,37 +64,38 @@ class AppBottomNav extends StatelessWidget {
   Widget _raisedItem(int i) {
     return InkWell(
       onTap: () => onTap(i),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: items[i].isDanger ? AppColors.urgent : AppColors.navy,
-                boxShadow: [
-                  BoxShadow(
-                    color: (items[i].isDanger ? AppColors.urgent : AppColors.navy).withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Icon(items[i].icon, size: 22, color: Colors.white),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            // Bigger and easier to hit than the old 46px — this is the
+            // primary emergency action, it should be the easiest tap
+            // target on the whole bar.
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: items[i].isDanger ? AppColors.urgent : AppColors.navy,
+              boxShadow: [
+                BoxShadow(
+                  color: (items[i].isDanger ? AppColors.urgent : AppColors.navy).withOpacity(0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            const SizedBox(height: 3),
-            Text(
-              items[i].label,
-              style: AppTypography.body(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: items[i].isDanger ? AppColors.urgent : AppColors.navy,
-              ),
+            child: Icon(items[i].icon, size: 28, color: Colors.white),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            items[i].label,
+            style: AppTypography.body(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: items[i].isDanger ? AppColors.urgent : AppColors.navy,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

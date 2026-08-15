@@ -47,7 +47,7 @@ dependencies:
   # pre-filled, user taps send — less silent, but far more reliable).
 
   # Connectivity check (Prompt 4 — online/offline branching)
-  connectivity_plus: ^6.0.5
+
 
   # Dial hotline numbers (Prompt 8 — resources screen)
   url_launcher: ^6.3.0
