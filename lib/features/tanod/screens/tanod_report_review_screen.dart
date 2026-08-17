@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../models/user_model.dart';
 import '../../../models/report_model.dart';
 import '../../../core/theme/app_colors.dart';
@@ -9,6 +10,7 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/section_title.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/live_map.dart';
+import '../../../core/widgets/photo_viewer_screen.dart';
 import '../data/tanod_report_repository.dart';
 
 class TanodReportReviewScreen extends StatefulWidget {
@@ -67,6 +69,29 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
         'audio' => Icons.mic_none_outlined,
         _ => Icons.description_outlined,
       };
+
+  /// Same viewing behavior as the resident's own evidence_vault_screen.dart
+  /// — photos open in-app zoomable, everything else hands off to whatever
+  /// app the device has for that file type. Still strictly view-only,
+  /// nothing here downloads or deletes anything (AGENTS.md §8).
+  Future<void> _openFile(BuildContext context, EvidenceFile file) async {
+    if (file.url.isEmpty) {
+      _showSnack("This file doesn't have a valid link.", isError: true);
+      return;
+    }
+    if (file.type == 'photo') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => PhotoViewerScreen(url: file.url, title: file.name)),
+      );
+      return;
+    }
+    final uri = Uri.parse(file.url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      _showSnack('Could not open this file.', isError: true);
+    }
+  }
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
@@ -267,30 +292,36 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
                 Text('No evidence uploaded for this report yet.', style: AppTypography.bodySoft(fontSize: 12))
               else
                 for (final file in report.evidenceFiles)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(8)),
-                          child: Icon(_iconFor(file.type), size: 18, color: AppColors.teal),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(file.name, style: AppTypography.body(fontSize: 12), overflow: TextOverflow.ellipsis),
-                              Text(
-                                '${file.type} · uploaded ${_formatDate(file.uploadedAt)}',
-                                style: AppTypography.mono(fontSize: 10),
-                              ),
-                            ],
+                  InkWell(
+                    onTap: () => _openFile(context, file),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration:
+                                BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(8)),
+                            child: Icon(_iconFor(file.type), size: 18, color: AppColors.teal),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(file.name, style: AppTypography.body(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                Text(
+                                  '${file.type} · uploaded ${_formatDate(file.uploadedAt)}',
+                                  style: AppTypography.mono(fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, size: 18, color: AppColors.inkSoft),
+                        ],
+                      ),
                     ),
                   ),
 

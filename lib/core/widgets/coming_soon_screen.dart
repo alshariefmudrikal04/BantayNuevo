@@ -15,7 +15,7 @@ class ComingSoonScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: AppColors.bg, 
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

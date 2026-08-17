@@ -277,7 +277,7 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
             ),
           ),
 
-          
+ 
 
           Row(
             children: [
@@ -359,7 +359,16 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
             },
           ),
 
-          
+          const SectionTitle('Quick access'),
+          AppButton(
+            label: 'Evidence vault',
+            variant: AppButtonVariant.ghost,
+            // Vault is per-report, so route through My Reports to pick
+            // which case's evidence to view rather than guessing one.
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => MyReportsScreen(user: user)),
+            ),
+          ),
         ],
       ),
     );

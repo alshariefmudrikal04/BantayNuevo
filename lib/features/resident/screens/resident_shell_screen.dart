@@ -45,7 +45,7 @@ class _ResidentShellScreenState extends State<ResidentShellScreen> {
   void _onNavTap(int navIndex) {
     if (navIndex == 1) {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => SosScreen(user: widget.user)),
+        MaterialPageRoute(builder: (_) => SosScreen(user: widget.user, autoStart: true)),
       );
       return;
     }

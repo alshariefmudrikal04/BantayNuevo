@@ -286,7 +286,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
               Center(
                 child: GestureDetector(
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => SosScreen(user: widget.user)),
+                    MaterialPageRoute(builder: (_) => SosScreen(user: widget.user, autoStart: true)),
                   ),
                   child: Text.rich(
                     TextSpan(

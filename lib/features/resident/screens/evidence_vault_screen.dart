@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../models/report_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -6,6 +7,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/section_title.dart';
 import '../data/report_repository.dart';
 import '../../../core/widgets/sensitive_content_gate.dart';
+import '../../../core/widgets/photo_viewer_screen.dart';
 
 /// View-only by design (AGENTS.md §8) — this screen must never gain a
 /// delete or download action, that's what preserves the evidence chain of
@@ -39,6 +41,37 @@ class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
         'audio' => Icons.mic_none_outlined,
         _ => Icons.description_outlined,
       };
+
+  /// Photos open in an in-app zoomable viewer (photo_viewer_screen.dart).
+  /// Video/audio/documents hand off to whatever app the device already has
+  /// for that file type (browser, video player, etc.) via the file's own
+  /// URL — deliberately not building a custom in-app video/audio player,
+  /// since that needs a whole extra package + native setup this project
+  /// doesn't need the risk of right now. Either way this is strictly
+  /// viewing — nothing here ever downloads or deletes the file itself, so
+  /// the chain-of-custody guarantee in the banner above still holds.
+  Future<void> _openFile(BuildContext context, EvidenceFile file) async {
+    if (file.url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("This file doesn't have a valid link."), backgroundColor: AppColors.urgent),
+      );
+      return;
+    }
+    if (file.type == 'photo') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => PhotoViewerScreen(url: file.url, title: file.name)),
+      );
+      return;
+    }
+    final uri = Uri.parse(file.url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open this file.'), backgroundColor: AppColors.urgent),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,30 +124,36 @@ class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
                 )
               else
                 for (final file in report.evidenceFiles)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(8)),
-                          child: Icon(_iconFor(file.type), size: 18, color: AppColors.teal),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(file.name, style: AppTypography.body(fontSize: 12), overflow: TextOverflow.ellipsis),
-                              Text(
-                                '${file.type} · uploaded ${_formatDate(file.uploadedAt)}',
-                                style: AppTypography.mono(fontSize: 10),
-                              ),
-                            ],
+                  InkWell(
+                    onTap: () => _openFile(context, file),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration:
+                                BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(8)),
+                            child: Icon(_iconFor(file.type), size: 18, color: AppColors.teal),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(file.name, style: AppTypography.body(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                Text(
+                                  '${file.type} · uploaded ${_formatDate(file.uploadedAt)}',
+                                  style: AppTypography.mono(fontSize: 10),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, size: 18, color: AppColors.inkSoft),
+                        ],
+                      ),
                     ),
                   ),
 

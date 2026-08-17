@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
+import '../../../models/emergency_contact_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -10,6 +11,7 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/live_map.dart';
 import '../data/sos_repository.dart';
+import '../data/emergency_contact_repository.dart';
 import '../widgets/panic_button.dart';
 import '../../../core/utils/geofence.dart';
 
@@ -22,13 +24,22 @@ import '../../../core/utils/geofence.dart';
 /// SOS is always: write the alert to Firestore -> onSosCreated Cloud
 /// Function -> PhilSMS texts every saved emergency contact with the
 /// resident's location and a distress message, same call also used as a
-/// backup ping to tanod. If there's genuinely no internet, the alert
-/// can't be created at all — see _sendDistressNow()'s error handling
-/// rather than any client-side SMS composer fallback.
+/// backup ping to tanod.
 class SosScreen extends StatefulWidget {
-  const SosScreen({super.key, required this.user});
+  const SosScreen({super.key, required this.user, this.autoStart = false});
 
   final UserModel user;
+
+  /// True when opened from a "this IS the SOS action" entry point (bottom
+  /// nav's SOS button, Home's big panic circle, the "Not urgent? /
+  /// Emergency instead" link in the report form) — skips straight into the
+  /// 10-second countdown instead of making them tap a second button once
+  /// they're already on this screen. False (default) for entry points that
+  /// are really about *viewing* SOS status, like tapping an SOS-related
+  /// notification — those should never auto-trigger a countdown someone
+  /// didn't ask for. Either way, an already-active alert always takes
+  /// priority over this — see _resumeActiveAlertIfAny().
+  final bool autoStart;
 
   @override
   State<SosScreen> createState() => _SosScreenState();
@@ -36,6 +47,7 @@ class SosScreen extends StatefulWidget {
 
 class _SosScreenState extends State<SosScreen> {
   final _sosRepository = SosRepository();
+  final _emergencyContactRepository = EmergencyContactRepository();
   bool _busy = false;
 
   // Set once an alert is created — switches the screen into the
@@ -55,18 +67,32 @@ class _SosScreenState extends State<SosScreen> {
   Timer? _countdownTimer;
   static const _countdownSeconds = 10;
 
+  // Shown as avatars around the countdown ring — just for reassurance that
+  // "yes, these are the people who'll be texted", not used for anything
+  // functional here (the actual texting happens server-side).
+  List<EmergencyContactModel> _contacts = [];
+
   @override
   void initState() {
     super.initState();
+    _emergencyContactRepository.streamForResident(widget.user.uid).first.then((contacts) {
+      if (mounted) setState(() => _contacts = contacts);
+    });
     _resumeActiveAlertIfAny();
   }
 
   /// Checks Firestore for an alert this resident already has open, rather
   /// than assuming "no active alert" just because this particular screen
-  /// instance is fresh — see fetchActiveAlert's doc comment for why.
+  /// instance is fresh. An already-active alert always wins over autoStart
+  /// — resuming existing tracking, never starting a second countdown on
+  /// top of a live alert.
   Future<void> _resumeActiveAlertIfAny() async {
     final alert = await _sosRepository.fetchActiveAlert(widget.user.uid);
-    if (!mounted || alert == null) return;
+    if (!mounted) return;
+    if (alert == null) {
+      if (widget.autoStart) _startCountdown();
+      return;
+    }
     setState(() {
       _activeAlertId = alert.id;
       _alertStream = _sosRepository.streamAlert(alert.id);
@@ -104,10 +130,10 @@ class _SosScreenState extends State<SosScreen> {
     }
   }
 
-  /// Tapping the panic button lands here — starts the 10s window, doesn't
-  /// send anything yet.
+  /// Tapping the panic button (or opening this screen with autoStart) lands
+  /// here — starts the 10s window, doesn't send anything yet.
   void _startCountdown() {
-    if (_countingDown || _busy) return;
+    if (_countingDown || _busy || _activeAlertId != null) return;
     setState(() {
       _countingDown = true;
       _secondsLeft = _countdownSeconds;
@@ -137,13 +163,7 @@ class _SosScreenState extends State<SosScreen> {
   }
 
   /// The real send — only ever reached once the 10-second countdown runs
-  /// out without being cancelled. This writes the alert doc, which is what
-  /// triggers onSosCreated server-side to fan out PhilSMS texts to every
-  /// saved emergency contact (with location + a distress message) and a
-  /// backup SMS to tanod, on top of the in-app push/live-tracking. There is
-  /// no client-side SMS composer fallback — if this write fails (e.g. no
-  /// internet), that's surfaced as an error, not silently substituted with
-  /// something else.
+  /// out without being cancelled.
   Future<void> _sendDistressNow() async {
     setState(() => _busy = true);
     final position = await _captureLocation();
@@ -154,11 +174,6 @@ class _SosScreenState extends State<SosScreen> {
       return;
     }
 
-    // Warn-only, deliberately never blocking — an actual emergency near the
-    // barangay line shouldn't get refused just because GPS drifted a few
-    // meters past it, or because someone fled just past the boundary while
-    // being chased. Tanod still sees the exact coordinates and can judge
-    // for themselves whether to respond.
     final geofence = checkBarangayBoundary(position.latitude, position.longitude);
     if (!geofence.withinBoundary) {
       _showSnack("You appear to be outside Barangay Camino Nuevo's coverage area — sending anyway.");
@@ -196,9 +211,6 @@ class _SosScreenState extends State<SosScreen> {
     }
   }
 
-  /// Keeps the resident's location current on the alert doc every few
-  /// seconds while it's active, so a responding tanod can actually follow
-  /// them — not just see where they were the instant they pressed the button.
   void _startLiveLocationUpdates(String alertId) {
     _locationTimer?.cancel();
     _locationTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
@@ -237,23 +249,20 @@ class _SosScreenState extends State<SosScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // Blocks back navigation both while an alert is active AND during the
-      // countdown itself — otherwise backing out mid-countdown would leave
-      // the Timer running invisibly on a screen the resident thinks they
-      // left, and it would still send a few seconds later with no
-      // indication why.
       canPop: _activeAlertId == null && !_countingDown,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (_countingDown) {
-          _showSnack('Sending in $_secondsLeft s — tap Cancel below to stop it.');
+          _showSnack('Sending in $_secondsLeft s — tap "I am safe" below to stop it.');
         } else {
           _showSnack("Your SOS is still active. Tap \"I'm safe now\" below to cancel it.");
         }
       },
       child: Scaffold(
-        backgroundColor: AppColors.bg,
-        appBar: AppBar(title: const Text('Emergency SOS')),
+        backgroundColor: _countingDown ? AppColors.urgent : AppColors.bg,
+        appBar: _countingDown
+            ? null
+            : AppBar(title: const Text('Emergency SOS')),
         body: SafeArea(
           child: _activeAlertId != null
               ? _buildTrackingView(context)
@@ -293,42 +302,70 @@ class _SosScreenState extends State<SosScreen> {
     );
   }
 
-  /// Shown for the 10s window between tapping the panic button and the
-  /// signal actually sending. Deliberately does NOT show a map or any
-  /// location — that only appears once _sendDistressNow() actually runs.
+  /// Full-bleed red "Emergency Calling" style screen — the countdown ring,
+  /// a pulsing broadcast icon, up to 4 emergency-contact avatars scattered
+  /// around it, and a white pill "I AM SAFE" button that cancels. Nothing
+  /// is sent or shown location-wise until this actually reaches zero.
   Widget _buildCountdownView(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Sending distress signal to Tanod in', style: AppTypography.body(fontSize: 14, color: AppColors.inkSoft)),
-          const SizedBox(height: 16),
-          Container(
-            width: 130,
-            height: 130,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.urgentLight,
-              border: Border.all(color: AppColors.urgent, width: 3),
-            ),
-            child: Center(
-              child: Text('$_secondsLeft', style: AppTypography.display(fontSize: 48, color: AppColors.urgent)),
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 110,
+                  height: 110,
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                  child: Center(
+                    child: Text(
+                      '$_secondsLeft',
+                      style: AppTypography.display(fontSize: 44, color: AppColors.urgent),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  'Emergency Calling...',
+                  style: AppTypography.display(fontSize: 22, color: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Tanod and your emergency contacts will be notified in $_secondsLeft seconds. '
+                  'Tap "I am safe" below to stop this.',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.body(fontSize: 12.5, color: Colors.white.withOpacity(0.85)),
+                ),
+                const SizedBox(height: 36),
+                SizedBox(
+                  height: 190,
+                  width: 260,
+                  child: _ContactBroadcastRing(contacts: _contacts),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 28),
-          SizedBox(
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+          child: SizedBox(
             width: double.infinity,
-            child: AppButton(label: 'Cancel', variant: AppButtonVariant.outline, onPressed: _cancelCountdown),
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _cancelCountdown,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: AppColors.urgent,
+                shape: const StadiumBorder(),
+                elevation: 0,
+              ),
+              child: Text('I AM SAFE', style: AppTypography.display(fontSize: 14, color: AppColors.urgent)),
+            ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Nothing has been sent yet — your location is not shared until this reaches zero.',
-            textAlign: TextAlign.center,
-            style: AppTypography.mono(fontSize: 10, color: AppColors.inkSoft),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -387,6 +424,88 @@ class _SosScreenState extends State<SosScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Pulsing center icon with up to 4 emergency-contact avatars scattered
+/// around it in fixed corner-ish positions, matching the reference layout
+/// (broadcast icon in the middle, contacts orbiting it). Purely decorative
+/// reassurance during the countdown — no functional role.
+class _ContactBroadcastRing extends StatefulWidget {
+  const _ContactBroadcastRing({required this.contacts});
+
+  final List<EmergencyContactModel> contacts;
+
+  @override
+  State<_ContactBroadcastRing> createState() => _ContactBroadcastRingState();
+}
+
+class _ContactBroadcastRingState extends State<_ContactBroadcastRing> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Widget _avatar(EmergencyContactModel contact) {
+    final initial = contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?';
+    return Container(
+      width: 46,
+      height: 46,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 6)],
+      ),
+      child: Center(
+        child: Text(initial, style: AppTypography.display(fontSize: 16, color: AppColors.urgent)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Fixed corner slots, same arrangement style as the reference image —
+    // top-left, top-right, bottom-left, bottom-right around the center.
+    const positions = [
+      Alignment(-0.85, -0.75),
+      Alignment(0.85, -0.75),
+      Alignment(-0.85, 0.75),
+      Alignment(0.85, 0.75),
+    ];
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Pulsing broadcast rings behind the center icon.
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final t = _controller.value;
+            return Container(
+              width: 60 + (t * 40),
+              height: 60 + (t * 40),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity((1 - t) * 0.35),
+              ),
+            );
+          },
+        ),
+        Container(
+          width: 56,
+          height: 56,
+          decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+          child: const Icon(Icons.sensors, color: AppColors.urgent, size: 26),
+        ),
+        for (int i = 0; i < widget.contacts.length && i < 4; i++)
+          Align(alignment: positions[i], child: _avatar(widget.contacts[i])),
+      ],
     );
   }
 }
