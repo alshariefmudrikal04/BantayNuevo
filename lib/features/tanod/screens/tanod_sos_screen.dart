@@ -39,6 +39,17 @@ class _TanodSosScreenState extends State<TanodSosScreen> {
     return '${diff.inHours} hr ago';
   }
 
+  /// Minutes left before this alert expires and can no longer be accepted
+  /// — shown next to still-active alerts so tanod can see urgency at a
+  /// glance. Purely a display hint; the real cutoff is enforced server-side
+  /// (firestore.rules), this just mirrors it.
+  int _minutesRemaining(DateTime? createdAt) {
+    if (createdAt == null) return sosAlertValidityMinutes;
+    final elapsed = DateTime.now().difference(createdAt);
+    final remaining = const Duration(minutes: sosAlertValidityMinutes) - elapsed;
+    return remaining.isNegative ? 0 : remaining.inMinutes;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -113,7 +124,8 @@ class _TanodSosScreenState extends State<TanodSosScreen> {
                               ),
                               Text(
                                 alert.status == SosStatus.active
-                                    ? 'Waiting for a responder · ${_relativeTime(alert.createdAt)}'
+                                    ? 'Waiting for a responder · ${_relativeTime(alert.createdAt)} · '
+                                        'expires in ${_minutesRemaining(alert.createdAt)}m'
                                     : '${alert.responderName ?? "A responder"} is handling this',
                                 style: AppTypography.mono(fontSize: 10),
                               ),

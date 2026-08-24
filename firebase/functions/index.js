@@ -1,8 +1,11 @@
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {defineSecret} = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const fetch = require("node-fetch");
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -12,8 +15,21 @@ const db = admin.firestore();
 //   firebase functions:secrets:set PHILSMS_SENDER_ID
 // (PhilSMS is a PH-based SMS gateway — see philsms.com. sender_id is
 // alphanumeric, max 11 characters, e.g. "BantayNuevo" — exactly 11.)
-const philSmsApiKey = defineSecret("3358|EZRtExe55kjwx3Vj2aDhLbkEGx4quthHUImlOMJS774a7522");
-const philSmsSenderId = defineSecret("PhilSMS");
+const philSmsApiKey = defineSecret("PHILSMS_API_KEY");
+const philSmsSenderId = defineSecret("PHILSMS_SENDER_ID");
+
+// Set these once with:
+//   firebase functions:secrets:set GMAIL_ADDRESS
+//   firebase functions:secrets:set GMAIL_APP_PASSWORD
+// GMAIL_APP_PASSWORD is a 16-character App Password generated from
+// myaccount.google.com/apppasswords — NOT your actual Gmail password.
+// Needs 2-Step Verification turned on for that Google account first,
+// otherwise the App Passwords page won't be available at all.
+const gmailAddress = defineSecret("GMAIL_ADDRESS");
+const gmailAppPassword = defineSecret("GMAIL_APP_PASSWORD");
+
+const PIN_RECOVERY_CODE_TTL_MINUTES = 10;
+const PIN_RECOVERY_MAX_ATTEMPTS = 5;
 
 /**
  * Numbers get stored however a resident typed them (09171234567,
@@ -165,3 +181,164 @@ exports.onReportCreated = onDocumentCreated("reports/{reportId}", async (event) 
     data: {type: "report", reportId: event.params.reportId},
   });
 });
+
+/**
+ * Hashes a 6-digit recovery code with a random per-request salt before
+ * storing it — mirrors the same approach the Flutter side uses for the PIN
+ * itself (core/utils/pin_hash.dart). Note: a 6-digit code only has a
+ * million possible values, so this hash mainly protects against casual
+ * inspection, not a determined offline brute-force with direct DB read
+ * access — the real protections against that are the short TTL, the
+ * attempt cap, and this being deleted the moment it's used once.
+ */
+function hashRecoveryCode(code, salt) {
+  return crypto.createHash("sha256").update(`${salt}:${code}`).digest("hex");
+}
+
+function buildGmailTransport(user, appPassword) {
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {user, pass: appPassword},
+  });
+}
+
+/**
+ * Callable from the Flutter app (security_screen.dart's "Forgot PIN?"
+ * flow, and pin_lock_screen.dart's recovery option) — generates a 6-digit
+ * code, stores a hash of it under pin_recovery_codes/{uid} with a 10-minute
+ * expiry, and emails the raw code to the resident's registered account
+ * email via Gmail SMTP. requireAuth (built into onCall + the auth check
+ * below) means this can only ever be triggered by someone already
+ * logged into the account it's recovering — not a public "guess emails"
+ * endpoint.
+ */
+exports.sendPinRecoveryCode = onCall(
+  {secrets: [gmailAddress, gmailAppPassword]},
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Must be signed in.");
+    }
+    const uid = request.auth.uid;
+    const email = request.auth.token.email;
+    if (!email) {
+      throw new HttpsError("failed-precondition", "No email on file for this account.");
+    }
+
+    const code = crypto.randomInt(0, 1000000).toString().padStart(6, "0");
+    const salt = crypto.randomBytes(16).toString("hex");
+    const codeHash = hashRecoveryCode(code, salt);
+    const expiresAt = admin.firestore.Timestamp.fromMillis(
+        Date.now() + PIN_RECOVERY_CODE_TTL_MINUTES * 60 * 1000,
+    );
+
+    await db.collection("pin_recovery_codes").doc(uid).set({
+      codeHash,
+      salt,
+      expiresAt,
+      attempts: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    try {
+      const transport = buildGmailTransport(gmailAddress.value(), gmailAppPassword.value());
+      await transport.sendMail({
+        from: `Bantay Nuevo <${gmailAddress.value()}>`,
+        to: email,
+        subject: "Bantay Nuevo — Your recovery code",
+        text: `Your verification code is ${code}. It expires in ` +
+          `${PIN_RECOVERY_CODE_TTL_MINUTES} minutes. If you didn't request this, ` +
+          "you can ignore this email — no changes were made to your account.",
+      });
+    } catch (err) {
+      logger.error("sendPinRecoveryCode: email send failed", err);
+      throw new HttpsError("internal", "Could not send the recovery email. Try again shortly.");
+    }
+
+    return {sent: true, expiresInMinutes: PIN_RECOVERY_CODE_TTL_MINUTES};
+  },
+);
+
+/**
+ * Verifies a code submitted from the app against what sendPinRecoveryCode
+ * stored. Single-use — the doc is deleted on a successful match so the
+ * same code can't be replayed. Rate-limited via PIN_RECOVERY_MAX_ATTEMPTS
+ * so this can't be brute-forced by repeated guesses even within the
+ * 10-minute window.
+ */
+exports.verifyPinRecoveryCode = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Must be signed in.");
+  }
+  const uid = request.auth.uid;
+  const submittedCode = String(request.data && request.data.code || "");
+
+  const docRef = db.collection("pin_recovery_codes").doc(uid);
+  const doc = await docRef.get();
+
+  if (!doc.exists) {
+    return {success: false, reason: "not_found"};
+  }
+  const data = doc.data();
+
+  if (data.expiresAt.toMillis() < Date.now()) {
+    await docRef.delete();
+    return {success: false, reason: "expired"};
+  }
+  if (data.attempts >= PIN_RECOVERY_MAX_ATTEMPTS) {
+    await docRef.delete();
+    return {success: false, reason: "too_many_attempts"};
+  }
+
+  const submittedHash = hashRecoveryCode(submittedCode, data.salt);
+  if (submittedHash !== data.codeHash) {
+    await docRef.update({attempts: admin.firestore.FieldValue.increment(1)});
+    return {success: false, reason: "incorrect"};
+  }
+
+  await docRef.delete();
+  return {success: true};
+});
+
+/**
+ * Callable from resident_home_screen.dart's "Share my location" card.
+ * Texts every one of the caller's saved emergency contacts via PhilSMS,
+ * same mechanism onSosCreated already uses — just a routine "here's where
+ * I am" message, not a distress alert, and no Firestore doc is written at
+ * all (unlike SOS, there's nothing here for tanod/police to track or
+ * respond to). Runs entirely server-side so the resident never has to
+ * leave the app or manually hit send in their own SMS app.
+ */
+exports.shareLocationViaSms = onCall(
+  {secrets: [philSmsApiKey, philSmsSenderId]},
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Must be signed in.");
+    }
+    const uid = request.auth.uid;
+    const lat = request.data && request.data.lat;
+    const lng = request.data && request.data.lng;
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      throw new HttpsError("invalid-argument", "lat/lng are required.");
+    }
+
+    const residentDoc = await db.collection("users").doc(uid).get();
+    const residentName = residentDoc.exists ? residentDoc.data().name : "A resident";
+
+    const contactsSnap = await db
+        .collection("emergency_contacts")
+        .where("residentId", "==", uid)
+        .get();
+    const contactNumbers = contactsSnap.docs.map((d) => d.data().phone).filter(Boolean);
+
+    if (contactNumbers.length === 0) {
+      throw new HttpsError("failed-precondition", "No emergency contacts saved.");
+    }
+
+    const mapsLink = `https://maps.google.com/?q=${lat},${lng}`;
+    const message = `[Bantay Nuevo] ${residentName} is sharing their current location: ${mapsLink}`;
+
+    await sendPhilSmsMessage(philSmsApiKey.value(), philSmsSenderId.value(), contactNumbers, message);
+
+    return {sent: true, contactCount: contactNumbers.length};
+  },
+);

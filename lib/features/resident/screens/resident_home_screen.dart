@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../../models/user_model.dart';
 import '../../../models/report_model.dart';
 import '../../../models/notification_model.dart';
@@ -104,12 +104,12 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
     );
   }
 
-  /// Texts current location to every saved emergency contact — a routine
-  /// "let people know where I am" convenience, distinct from SOS (which
-  /// creates an alert doc, notifies tanod/police, and expects a response).
-  /// Reuses the same sms: composer approach as the offline SOS path in
-  /// sos_screen.dart, just with non-emergency wording and no Firestore
-  /// write at all.
+  /// Texts current location to every saved emergency contact automatically
+  /// via PhilSMS (shareLocationViaSms Cloud Function) — same mechanism SOS
+  /// already uses, no native SMS app hand-off, no manual "tap send"
+  /// required. Distinct from SOS itself: this is a routine "here's where I
+  /// am" convenience, not a distress alert, and creates no Firestore alert
+  /// doc for tanod/police to see.
   Future<void> _shareMyLocation() async {
     setState(() => _sharingLocation = true);
     try {
@@ -133,15 +133,13 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
         }
         return;
       }
-      final numbers = contacts.map((c) => c.phone).where((p) => p.isNotEmpty).toSet();
-      final mapsLink = 'https://maps.google.com/?q=${position.latitude},${position.longitude}';
-      final message = '[Bantay Nuevo] ${widget.user.name} is sharing their current location: $mapsLink';
-      final uri = Uri(scheme: 'sms', path: numbers.join(','), queryParameters: {'body': message});
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        _showSnack('Could not open your SMS app.', isError: true);
-      }
+      await FirebaseFunctions.instance.httpsCallable('shareLocationViaSms').call({
+        'lat': position.latitude,
+        'lng': position.longitude,
+      });
+      _showSnack('Location shared with your emergency contacts.');
+    } on FirebaseFunctionsException catch (e) {
+      _showSnack(e.message ?? 'Could not share your location.', isError: true);
     } catch (_) {
       _showSnack('Could not get your location — check permissions and try again.', isError: true);
     } finally {
@@ -277,7 +275,18 @@ class _ResidentHomeScreenState extends State<ResidentHomeScreen> {
             ),
           ),
 
- 
+          const SizedBox(height: 4),
+          Center(
+            child: PanicButton(
+              label: 'SOS',
+              sublabel: 'TAP TO SEND',
+              icon: Icons.shield,
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => SosScreen(user: user, autoStart: true)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
 
           Row(
             children: [

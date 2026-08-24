@@ -71,8 +71,19 @@ class SosRepository {
 
   /// Live stream of one alert — the resident's live-tracking view watches
   /// this for status changes and the responder's location once accepted.
+  /// Also performs the same lazy-expire write TanodSosRepository.
+  /// streamOpenAlerts() does — either side noticing a stale 'active' alert
+  /// can persist 'expired', not just a tanod's device. The security rule
+  /// permits this exact transition from either role, and only once the
+  /// alert has genuinely aged out server-side.
   Stream<SosAlertModel> streamAlert(String alertId) {
-    return _alerts.doc(alertId).snapshots().map((d) => SosAlertModel.fromFirestore(d.data()!, d.id));
+    return _alerts.doc(alertId).snapshots().map((d) {
+      final alert = SosAlertModel.fromFirestore(d.data()!, d.id);
+      if (alert.status == SosStatus.active && alert.isExpired) {
+        _alerts.doc(alertId).update({'status': 'expired'}).catchError((_) => null);
+      }
+      return alert;
+    });
   }
 
   /// Called repeatedly (every few seconds) while the SOS screen is open and

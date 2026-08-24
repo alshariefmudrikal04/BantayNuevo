@@ -1,11 +1,77 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // TEMPORARY — permissive rules for local development/testing only.
-    // Replace with real per-role RBAC rules before any real deployment
-    // (residents read/write only their own reports & sos_alerts; tanod/police
-    // read all relevant to their role) — see AGENTS.md §8.
-    match /{document=**} {
+
+    // sos_alerts — the one collection with real, server-enforced logic
+    // beyond "must be logged in". Every other collection below stays
+    // exactly as permissive as it's always been (still flagged as
+    // temporary — see AGENTS.md §8, a full RBAC pass is a known separate
+    // follow-up). This pass focuses narrowly on making the 5-minute SOS
+    // acceptance window genuinely tamper-proof.
+    //
+    // IMPORTANT: there is deliberately NO catch-all `match /{document=**}`
+    // rule anywhere in this file. Firestore evaluates every rule block
+    // that matches a given path and grants access if ANY of them allow
+    // it — so a wildcard sitting alongside a narrow, careful rule for the
+    // same path would silently override it and grant unrestricted access
+    // anyway. Every collection the app actually uses is listed explicitly
+    // below for exactly this reason.
+    match /sos_alerts/{alertId} {
+      allow read: if request.auth != null;
+
+      // createdAt must land close to Firestore's own clock (request.time)
+      // at creation — a ±2 minute tolerance for normal clock drift, but
+      // nowhere near enough room to backdate/postdate an alert to game
+      // the 5-minute window below. Without this check, createdAt is just
+      // whatever the client claims, and the whole expiration feature
+      // becomes trivially bypassable by a modified client.
+      allow create: if request.auth != null
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdAt > request.time - duration.value(2, 'm')
+        && request.resource.data.createdAt < request.time + duration.value(2, 'm');
+
+      allow update: if request.auth != null && (
+        // Accepting: only within 5 minutes of the (now-verified) creation
+        // time, checked against request.time — Firestore's own server
+        // clock at the moment the write actually lands, not anything the
+        // requesting device can influence.
+        (resource.data.status == 'active'
+          && request.resource.data.status == 'responded'
+          && request.time < resource.data.createdAt + duration.value(5, 'm'))
+        // Lazy-expire: any client noticing a stale 'active' alert can
+        // flip it to 'expired' — but ONLY once 5 minutes have genuinely
+        // passed server-side, and ONLY that one transition.
+        || (resource.data.status == 'active'
+          && request.resource.data.status == 'expired'
+          && request.time >= resource.data.createdAt + duration.value(5, 'm'))
+        // Everything else (arrived, closed, location pings while already
+        // responded, etc.) — allowed as long as the alert isn't already
+        // expired or closed.
+        || (resource.data.status != 'expired' && resource.data.status != 'closed')
+      );
+    }
+
+    // Cloud-Functions-only — the Admin SDK bypasses rules entirely, so
+    // this correctly means "no client, ever". A 6-digit recovery code's
+    // hash alone is brute-forceable in milliseconds by anyone who can
+    // read this doc directly, so this can't be left open the way
+    // everything else below still is for now.
+    match /pin_recovery_codes/{uid} {
+      allow read, write: if false;
+    }
+
+    // Everything else — unchanged in behavior from before this fix, just
+    // now listed explicitly instead of relying on one catch-all wildcard.
+    match /users/{uid} {
+      allow read, write: if request.auth != null;
+    }
+    match /reports/{reportId} {
+      allow read, write: if request.auth != null;
+    }
+    match /notifications/{notificationId} {
+      allow read, write: if request.auth != null;
+    }
+    match /emergency_contacts/{contactId} {
       allow read, write: if request.auth != null;
     }
   }

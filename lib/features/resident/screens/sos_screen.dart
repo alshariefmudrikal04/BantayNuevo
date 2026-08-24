@@ -225,9 +225,16 @@ class _SosScreenState extends State<SosScreen> {
     });
   }
 
-  Future<void> _markResolved() async {
+  /// Dismisses the current alert view and returns to the panic button.
+  /// Skips the Firestore write entirely if the alert already expired —
+  /// firestore.rules treats 'expired' as a fully terminal status (no
+  /// further transitions, matching "EXPIRED → CANNOT BE ACCEPTED"), so
+  /// attempting markResolved() on one would just fail with a permission
+  /// error. There's nothing to update server-side in that case anyway —
+  /// this is purely resetting local state so the resident can try again.
+  Future<void> _markResolved({required bool alreadyExpired}) async {
     _locationTimer?.cancel();
-    if (_activeAlertId != null) {
+    if (_activeAlertId != null && !alreadyExpired) {
       await _sosRepository.markResolved(_activeAlertId!);
     }
     if (!mounted) return;
@@ -236,7 +243,7 @@ class _SosScreenState extends State<SosScreen> {
       _alertStream = null;
       _lastKnownPosition = null;
     });
-    _showSnack('Marked resolved.');
+    _showSnack(alreadyExpired ? 'You can send a new SOS if you still need help.' : 'Marked resolved.');
   }
 
   void _showSnack(String message, {bool isError = false}) {
@@ -382,18 +389,25 @@ class _SosScreenState extends State<SosScreen> {
         }
 
         final status = alert?.status ?? SosStatus.active;
-        final statusText = switch (status) {
-          SosStatus.active => 'Waiting for a responder...',
-          SosStatus.responded => '${alert?.responderName ?? 'A responder'} is on the way',
-          SosStatus.arrived => '${alert?.responderName ?? 'A responder'} has arrived',
-          SosStatus.closed => 'Marked resolved',
-        };
-        final statusColor = switch (status) {
-          SosStatus.active => AppColors.amber,
-          SosStatus.responded => AppColors.teal,
-          SosStatus.arrived => AppColors.resolvedFg,
-          SosStatus.closed => AppColors.resolvedFg,
-        };
+        final isExpired = status == SosStatus.expired || alert?.isExpired == true;
+        final statusText = isExpired
+            ? 'No one responded in time — this alert has expired'
+            : switch (status) {
+                SosStatus.active => 'Waiting for a responder...',
+                SosStatus.responded => '${alert?.responderName ?? 'A responder'} is on the way',
+                SosStatus.arrived => '${alert?.responderName ?? 'A responder'} has arrived',
+                SosStatus.closed => 'Marked resolved',
+                SosStatus.expired => 'No one responded in time — this alert has expired',
+              };
+        final statusColor = isExpired
+            ? AppColors.urgent
+            : switch (status) {
+                SosStatus.active => AppColors.amber,
+                SosStatus.responded => AppColors.teal,
+                SosStatus.arrived => AppColors.resolvedFg,
+                SosStatus.closed => AppColors.resolvedFg,
+                SosStatus.expired => AppColors.urgent,
+              };
 
         return Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -419,7 +433,11 @@ class _SosScreenState extends State<SosScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              AppButton(label: "I'm safe now — mark resolved", variant: AppButtonVariant.ghost, onPressed: _markResolved),
+              AppButton(
+                label: isExpired ? 'Send a new SOS' : "I'm safe now — mark resolved",
+                variant: AppButtonVariant.ghost,
+                onPressed: () => _markResolved(alreadyExpired: isExpired),
+              ),
             ],
           ),
         );

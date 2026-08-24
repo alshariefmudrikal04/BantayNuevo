@@ -149,6 +149,7 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
           final iAccepted = alert.responderId == widget.user.uid;
           final someoneElseAccepted = alert.responderId != null && !iAccepted;
           final hasArrived = alert.status == SosStatus.arrived;
+          final isExpired = alert.status == SosStatus.expired || alert.isExpired;
 
           return FutureBuilder<String?>(
             future: _residentNameFuture(alert.residentId),
@@ -174,6 +175,22 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
                           style: AppTypography.bodySoft(fontSize: 12),
                         ),
                       )
+                    else if (isExpired)
+                      AppCard(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.timer_off_outlined, size: 18, color: AppColors.inkSoft),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'This alert expired without a response and can no longer be accepted. '
+                                'It was only valid for $sosAlertValidityMinutes minutes after being sent.',
+                                style: AppTypography.bodySoft(fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
                     else
                       Expanded(
                         child: LiveMap(
@@ -186,7 +203,7 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
                         ),
                       ),
                     const SizedBox(height: 12),
-                    if (!someoneElseAccepted && !iAccepted)
+                    if (!someoneElseAccepted && !iAccepted && !isExpired)
                       AppButton(
                         label: _accepting ? 'Accepting...' : 'Accept — respond to this SOS',
                         onPressed: _accepting ? null : () => _accept(alert.residentId),

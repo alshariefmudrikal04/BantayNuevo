@@ -17,16 +17,35 @@ class TanodSosRepository {
   CollectionReference<Map<String, dynamic>> get _alerts => _firestore.collection('sos_alerts');
   CollectionReference<Map<String, dynamic>> get _users => _firestore.collection('users');
 
-  /// All non-closed alerts, newest first. Single-field orderBy needs no
-  /// composite index — "active vs. already responded" is filtered
-  /// client-side here rather than adding a where() clause that would.
+  /// All non-closed, non-expired alerts, newest first. Single-field
+  /// orderBy needs no composite index. Also does the "lazy expire" write:
+  /// any tanod's app that notices a stale 'active' alert flips it to
+  /// 'expired' — fire-and-forget, doesn't block this stream. The security
+  /// rule only permits that exact transition, and only once the alert has
+  /// genuinely aged past sosAlertValidityMinutes server-side, so this is
+  /// safe for any tanod device to do, not just whichever one happens to
+  /// be watching first. The .where() below also excludes stale-but-not-
+  /// yet-persisted alerts immediately, so the UI never has to wait for
+  /// that write to round-trip before hiding them.
   Stream<List<SosAlertModel>> streamOpenAlerts() {
-    return _alerts.orderBy('createdAt', descending: true).limit(50).snapshots().map(
-          (snap) => snap.docs
-              .map((d) => SosAlertModel.fromFirestore(d.data(), d.id))
-              .where((a) => a.status != SosStatus.closed)
-              .toList(),
-        );
+    return _alerts.orderBy('createdAt', descending: true).limit(50).snapshots().map((snap) {
+      final alerts = snap.docs.map((d) => SosAlertModel.fromFirestore(d.data(), d.id)).toList();
+
+      for (final alert in alerts) {
+        if (alert.status == SosStatus.active && alert.isExpired) {
+          _alerts.doc(alert.id).update({'status': 'expired'}).catchError((_) {
+            // Another client may have already flipped it, or a transient
+            // network issue — either way nothing to surface here, the
+            // filter below hides it from this UI regardless.
+            return null;
+          });
+        }
+      }
+
+      return alerts
+          .where((a) => a.status != SosStatus.closed && a.status != SosStatus.expired && !a.isExpired)
+          .toList();
+    });
   }
 
   Stream<SosAlertModel> streamAlert(String alertId) {
@@ -41,6 +60,20 @@ class TanodSosRepository {
     required double lat,
     required double lng,
   }) async {
+    // Defense in depth — firestore.rules is the real enforcement (a
+    // modified client can't bypass it), but checking here first means a
+    // tanod who taps Accept on something that expired moments ago gets a
+    // clear, friendly message instead of a raw permission-denied
+    // exception surfacing from Firestore.
+    final snap = await _alerts.doc(alertId).get();
+    if (!snap.exists) {
+      throw Exception('This alert no longer exists.');
+    }
+    final current = SosAlertModel.fromFirestore(snap.data()!, snap.id);
+    if (current.status != SosStatus.active || current.isExpired) {
+      throw Exception('This alert has expired and can no longer be accepted.');
+    }
+
     await _alerts.doc(alertId).update({
       'responderId': tanodId,
       'responderName': tanodName,
