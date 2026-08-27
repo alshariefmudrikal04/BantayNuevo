@@ -164,8 +164,8 @@ class _TanodAlertDetailScreenState extends State<TanodAlertDetailScreen> {
                     Text('SOS from $residentName', style: AppTypography.display(fontSize: 16)),
                     const SizedBox(height: 4),
                     Text(
-                      alert.escalationTarget == 'pnp' ? 'Escalated directly to PNP' : 'Standard SOS alert',
-                      style: AppTypography.mono(fontSize: 10.5),
+                      alert.emergencyType.label,
+                      style: AppTypography.mono(fontSize: 10.5, color: AppColors.urgent),
                     ),
                     const SizedBox(height: 10),
                     if (someoneElseAccepted)

@@ -12,7 +12,6 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/live_map.dart';
 import '../data/sos_repository.dart';
 import '../data/emergency_contact_repository.dart';
-import '../widgets/panic_button.dart';
 import '../../../core/utils/geofence.dart';
 
 /// Per the thesis design: residents never choose tanod vs. police directly
@@ -32,13 +31,13 @@ class SosScreen extends StatefulWidget {
 
   /// True when opened from a "this IS the SOS action" entry point (bottom
   /// nav's SOS button, Home's big panic circle, the "Not urgent? /
-  /// Emergency instead" link in the report form) — skips straight into the
-  /// 10-second countdown instead of making them tap a second button once
-  /// they're already on this screen. False (default) for entry points that
-  /// are really about *viewing* SOS status, like tapping an SOS-related
-  /// notification — those should never auto-trigger a countdown someone
-  /// didn't ask for. Either way, an already-active alert always takes
-  /// priority over this — see _resumeActiveAlertIfAny().
+  /// Emergency instead" link in the report form). Historically this
+  /// skipped straight into the countdown; now that picking an emergency
+  /// type is a required first step (it's what selects the alarm sound on
+  /// the tanod side), there's no longer a screen left to skip past — this
+  /// flag is kept for API compatibility with existing call sites but no
+  /// longer changes behavior. Either way, an already-active alert always
+  /// takes priority — see _resumeActiveAlertIfAny().
   final bool autoStart;
 
   @override
@@ -67,6 +66,13 @@ class _SosScreenState extends State<SosScreen> {
   Timer? _countdownTimer;
   static const _countdownSeconds = 10;
 
+  // Which emergency type the resident picked on the type-selection screen
+  // — required before any countdown can start now, since it's what
+  // determines which alarm sound plays on the tanod side (see
+  // core/services/alarm_sound_service.dart). Null only while that screen
+  // is still showing, before a choice has been made.
+  EmergencyType? _selectedType;
+
   // Shown as avatars around the countdown ring — just for reassurance that
   // "yes, these are the people who'll be texted", not used for anything
   // functional here (the actual texting happens server-side).
@@ -83,16 +89,12 @@ class _SosScreenState extends State<SosScreen> {
 
   /// Checks Firestore for an alert this resident already has open, rather
   /// than assuming "no active alert" just because this particular screen
-  /// instance is fresh. An already-active alert always wins over autoStart
-  /// — resuming existing tracking, never starting a second countdown on
-  /// top of a live alert.
+  /// instance is fresh. An already-active alert always resumes straight
+  /// into live tracking, skipping type-selection entirely (the type was
+  /// already picked whenever that alert was originally created).
   Future<void> _resumeActiveAlertIfAny() async {
     final alert = await _sosRepository.fetchActiveAlert(widget.user.uid);
-    if (!mounted) return;
-    if (alert == null) {
-      if (widget.autoStart) _startCountdown();
-      return;
-    }
+    if (!mounted || alert == null) return;
     setState(() {
       _activeAlertId = alert.id;
       _alertStream = _sosRepository.streamAlert(alert.id);
@@ -130,11 +132,13 @@ class _SosScreenState extends State<SosScreen> {
     }
   }
 
-  /// Tapping the panic button (or opening this screen with autoStart) lands
-  /// here — starts the 10s window, doesn't send anything yet.
-  void _startCountdown() {
+  /// Called when the resident taps a specific emergency type — records
+  /// the choice and starts the 10s countdown in one tap, doesn't send
+  /// anything yet.
+  void _selectTypeAndStartCountdown(EmergencyType type) {
     if (_countingDown || _busy || _activeAlertId != null) return;
     setState(() {
+      _selectedType = type;
       _countingDown = true;
       _secondsLeft = _countdownSeconds;
     });
@@ -158,6 +162,7 @@ class _SosScreenState extends State<SosScreen> {
     setState(() {
       _countingDown = false;
       _secondsLeft = _countdownSeconds;
+      _selectedType = null;
     });
     _showSnack('SOS cancelled — nothing was sent.');
   }
@@ -184,6 +189,7 @@ class _SosScreenState extends State<SosScreen> {
           .createOnlineAlert(
             residentId: widget.user.uid,
             escalationTarget: 'tanod',
+            emergencyType: _selectedType ?? EmergencyType.other,
             lat: position.latitude,
             lng: position.longitude,
           )
@@ -242,6 +248,7 @@ class _SosScreenState extends State<SosScreen> {
       _activeAlertId = null;
       _alertStream = null;
       _lastKnownPosition = null;
+      _selectedType = null;
     });
     _showSnack(alreadyExpired ? 'You can send a new SOS if you still need help.' : 'Marked resolved.');
   }
@@ -275,28 +282,75 @@ class _SosScreenState extends State<SosScreen> {
               ? _buildTrackingView(context)
               : _countingDown
                   ? _buildCountdownView(context)
-                  : _buildPanicView(context),
+                  : _buildTypeSelectionView(context),
         ),
       ),
     );
   }
 
-  Widget _buildPanicView(BuildContext context) {
+  /// Required first step now — picking a type both selects it AND starts
+  /// the 10s countdown in one tap (no separate confirm button), so this
+  /// doesn't add meaningful friction versus the old single panic button.
+  /// The type chosen here is what determines which alarm sound plays on
+  /// the tanod side — see core/services/alarm_sound_service.dart.
+  Widget _buildTypeSelectionView(BuildContext context) {
+    final types = [
+      (EmergencyType.physicalViolence, Icons.front_hand, AppColors.urgent, AppColors.urgentLight),
+      (EmergencyType.domesticViolence, Icons.home, AppColors.urgent, AppColors.urgentLight),
+      (EmergencyType.threats, Icons.warning_amber_rounded, AppColors.amber, AppColors.amberLight),
+      (EmergencyType.minorAbuse, Icons.child_care, AppColors.lock, AppColors.lockLight),
+      (EmergencyType.other, Icons.error_outline, AppColors.navy, AppColors.tealLight),
+    ];
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Pressing below starts a 10-second countdown before Tanod is alerted — plenty of time to cancel '
+            'What kind of emergency is this?',
+            style: AppTypography.display(fontSize: 17),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tapping one starts a 10-second countdown before Tanod is alerted — plenty of time to cancel '
             'if it was an accident.',
             textAlign: TextAlign.center,
             style: AppTypography.bodySoft(fontSize: 12),
           ),
           const SizedBox(height: 20),
-          PanicButton(busy: _busy, onPressed: _startCountdown),
-          const SizedBox(height: 8),
-          Text('Tanod is notified · 10s to cancel', style: AppTypography.mono(fontSize: 10)),
-          const SizedBox(height: 16),
+          for (final (type, icon, color, bg) in types)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Material(
+                color: bg,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _selectTypeAndStartCountdown(type),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                          child: Icon(icon, color: Colors.white, size: 20),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(type.label, style: AppTypography.display(fontSize: 14.5, color: AppColors.ink)),
+                        ),
+                        Icon(Icons.chevron_right, color: color),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 10),
           AppCard(
             child: Text(
               'Once sent, your emergency contacts are texted automatically with your location — add them under '
@@ -338,6 +392,13 @@ class _SosScreenState extends State<SosScreen> {
                   'Emergency Calling...',
                   style: AppTypography.display(fontSize: 22, color: Colors.white),
                 ),
+                if (_selectedType != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _selectedType!.label,
+                    style: AppTypography.mono(fontSize: 11, color: Colors.white.withOpacity(0.85)),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   'Tanod and your emergency contacts will be notified in $_secondsLeft seconds. '
@@ -420,6 +481,10 @@ class _SosScreenState extends State<SosScreen> {
                   Expanded(child: Text(statusText, style: AppTypography.display(fontSize: 14, color: statusColor))),
                 ],
               ),
+              if (alert != null) ...[
+                const SizedBox(height: 2),
+                Text(alert.emergencyType.label, style: AppTypography.mono(fontSize: 10.5, color: AppColors.inkSoft)),
+              ],
               const SizedBox(height: 10),
               Expanded(
                 child: LiveMap(

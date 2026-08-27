@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
@@ -5,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/services/alarm_sound_service.dart';
 import '../data/tanod_sos_repository.dart';
 import '../../auth/data/auth_repository.dart';
 import 'tanod_alert_detail_screen.dart';
@@ -21,7 +23,22 @@ class TanodSosScreen extends StatefulWidget {
 class _TanodSosScreenState extends State<TanodSosScreen> {
   final _repository = TanodSosRepository();
   final _authRepository = AuthRepository();
-  late final Stream<List<SosAlertModel>> _alertsStream = _repository.streamOpenAlerts();
+
+  // asBroadcastStream() — this stream now needs two independent listeners:
+  // the StreamBuilder driving the UI, and _alarmSubscription below watching
+  // for brand-new alerts to play a sound for. A plain Firestore stream is
+  // single-subscription only and would throw on the second listen().
+  late final Stream<List<SosAlertModel>> _alertsStream = _repository.streamOpenAlerts().asBroadcastStream();
+
+  // Tracks which alert IDs this screen has already seen, so the alarm only
+  // fires for GENUINELY NEW alerts — not on every stream tick (which also
+  // fires on routine things like a responder's live location updating
+  // every ~6s). The first emission just records what's already there
+  // without alarming, so opening this screen with existing alerts doesn't
+  // blast a sound for all of them at once.
+  final Set<String> _seenAlertIds = {};
+  bool _initialLoadDone = false;
+  StreamSubscription<List<SosAlertModel>>? _alarmSubscription;
 
   // Cached per residentId so the list doesn't re-fetch a name on every
   // stream tick (which happens every ~6s from live location updates) —
@@ -29,6 +46,31 @@ class _TanodSosScreenState extends State<TanodSosScreen> {
   final Map<String, Future<String?>> _nameFutures = {};
   Future<String?> _residentNameFuture(String residentId) {
     return _nameFutures.putIfAbsent(residentId, () => _repository.fetchUserName(residentId));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _alarmSubscription = _alertsStream.listen(_checkForNewAlerts);
+  }
+
+  @override
+  void dispose() {
+    _alarmSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _checkForNewAlerts(List<SosAlertModel> alerts) {
+    if (!_initialLoadDone) {
+      _seenAlertIds.addAll(alerts.map((a) => a.id));
+      _initialLoadDone = true;
+      return;
+    }
+    for (final alert in alerts) {
+      if (_seenAlertIds.add(alert.id) && alert.status == SosStatus.active) {
+        AlarmSoundService.play(alert.emergencyType);
+      }
+    }
   }
 
   String _relativeTime(DateTime? date) {
@@ -124,7 +166,7 @@ class _TanodSosScreenState extends State<TanodSosScreen> {
                               ),
                               Text(
                                 alert.status == SosStatus.active
-                                    ? 'Waiting for a responder · ${_relativeTime(alert.createdAt)} · '
+                                    ? '${alert.emergencyType.label} · ${_relativeTime(alert.createdAt)} · '
                                         'expires in ${_minutesRemaining(alert.createdAt)}m'
                                     : '${alert.responderName ?? "A responder"} is handling this',
                                 style: AppTypography.mono(fontSize: 10),

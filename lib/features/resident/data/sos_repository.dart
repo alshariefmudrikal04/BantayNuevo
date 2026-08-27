@@ -32,12 +32,14 @@ class SosRepository {
   Future<String> createOnlineAlert({
     required String residentId,
     required String escalationTarget, // always "tanod" — see sos_screen.dart
+    required EmergencyType emergencyType,
     required double lat,
     required double lng,
   }) async {
     final docRef = await _alerts.add({
       'residentId': residentId,
       'escalationTarget': escalationTarget,
+      'emergencyType': emergencyType.value,
       'location': {'lat': lat, 'lng': lng},
       'responderId': null,
       'responderName': null,

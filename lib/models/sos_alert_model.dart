@@ -23,8 +23,42 @@ extension SosStatusX on SosStatus {
 /// A newly created alert is only acceptable for this long — enforced for
 /// real in firestore.rules (server clock, not client-trusted), this
 /// constant is just for client-side display/filtering so the UI matches
-/// what the backend will actually allow.
+/// what the backend will allow.
 const sosAlertValidityMinutes = 5;
+
+/// Emergency type, picked on the new type-selection step before the
+/// countdown starts (sos_screen.dart). Drives both the label shown to
+/// tanod and — the actual point of this — which alarm sound plays on the
+/// tanod side (see core/services/alarm_sound_service.dart). Kept as a
+/// plain string in Firestore (not a nested enum) so old alerts without
+/// this field just fall back to "other" rather than breaking.
+enum EmergencyType { physicalViolence, domesticViolence, threats, minorAbuse, other }
+
+extension EmergencyTypeX on EmergencyType {
+  String get value => switch (this) {
+        EmergencyType.physicalViolence => 'physical_violence',
+        EmergencyType.domesticViolence => 'domestic_violence',
+        EmergencyType.threats => 'threats',
+        EmergencyType.minorAbuse => 'minor_abuse',
+        EmergencyType.other => 'other',
+      };
+
+  String get label => switch (this) {
+        EmergencyType.physicalViolence => 'Physical Violence',
+        EmergencyType.domesticViolence => 'Domestic Violence',
+        EmergencyType.threats => 'Threats / Harassment',
+        EmergencyType.minorAbuse => 'Abuse Involving a Minor',
+        EmergencyType.other => 'Other Emergency',
+      };
+
+  static EmergencyType fromString(String? value) => switch (value) {
+        'physical_violence' => EmergencyType.physicalViolence,
+        'domestic_violence' => EmergencyType.domesticViolence,
+        'threats' => EmergencyType.threats,
+        'minor_abuse' => EmergencyType.minorAbuse,
+        _ => EmergencyType.other,
+      };
+}
 
 /// Matches the `sos_alerts/{alertId}` schema in AGENTS.md §5, extended with
 /// live-tracking fields: the resident's location keeps updating while the
@@ -36,6 +70,7 @@ class SosAlertModel {
     required this.residentId,
     required this.escalationTarget,
     required this.status,
+    required this.emergencyType,
     this.lat,
     this.lng,
     this.responderId,
@@ -49,6 +84,7 @@ class SosAlertModel {
   final String residentId;
   final String escalationTarget; // "auto" | "tanod" | "pnp"
   final SosStatus status;
+  final EmergencyType emergencyType;
   final double? lat;
   final double? lng;
   final String? responderId;
@@ -79,6 +115,7 @@ class SosAlertModel {
       residentId: data['residentId'] as String? ?? '',
       escalationTarget: data['escalationTarget'] as String? ?? 'auto',
       status: SosStatusX.fromString(data['status'] as String? ?? 'active'),
+      emergencyType: EmergencyTypeX.fromString(data['emergencyType'] as String?),
       lat: (location?['lat'] as num?)?.toDouble(),
       lng: (location?['lng'] as num?)?.toDouble(),
       responderId: data['responderId'] as String?,
