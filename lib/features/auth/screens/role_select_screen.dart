@@ -5,6 +5,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_button.dart';
 import 'login_screen.dart';
+import 'admin_login_screen.dart';
 
 /// First screen of the auth flow — "I am a...". Selecting a role takes you
 /// to login_screen.dart for that role; the actual source of truth for a
@@ -58,6 +59,15 @@ class RoleSelectScreen extends StatelessWidget {
                 title: 'Police Responder',
                 desc: 'Respond to escalated emergency alerts',
                 onTap: () => _goToLogin(context, UserRole.police),
+              ),
+              const SizedBox(height: 20),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
+                  ),
+                  child: Text('Barangay Admin sign-in', style: AppTypography.mono(fontSize: 11, color: AppColors.inkSoft)),
+                ),
               ),
             ],
           ),

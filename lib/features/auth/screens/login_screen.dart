@@ -94,12 +94,18 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 12),
               Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => RegisterScreen(role: widget.role)),
-                  ),
-                  child: const Text('No account yet? Register'),
-                ),
+                child: widget.role == UserRole.resident
+                    ? TextButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                        ),
+                        child: const Text('No account yet? Register'),
+                      )
+                    : Text(
+                        'No account? ${widget.role.displayLabel} accounts are created by a barangay admin.',
+                        textAlign: TextAlign.center,
+                        style: AppTypography.bodySoft(fontSize: 11.5),
+                      ),
               ),
             ],
           ),

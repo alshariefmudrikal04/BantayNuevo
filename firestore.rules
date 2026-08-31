@@ -60,6 +60,37 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // isAdmin() — used only by the config/ rule below (Prompt 14). Reads
+    // the requesting user's own users/{uid} doc to check their role.
+    // Deliberately not reused to gate reports/users/etc. above — those
+    // stay on the existing "any authenticated user" posture per the
+    // "known separate follow-up" note; this is scoped narrowly to the
+    // one new piece of global, everyone-affecting state this dashboard
+    // introduces (the org-wide alarm sound per emergency type).
+    function isAdmin() {
+      return request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // config/alarm_sounds — every tanod's app reads this (see
+    // core/services/alarm_sound_service.dart), only a Barangay Admin can
+    // write it (see AdminRepository.uploadAlarmSound).
+    match /config/{document} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // mail/{doc} — trigger docs for the Firebase "Trigger Email from
+    // Firestore" extension (installed + configured separately, see
+    // AdminRepository._sendVerificationEmail). Only an admin creates these
+    // (on approving/rejecting a resident's verification); nobody needs to
+    // read them back, including the admin who wrote it — the extension
+    // itself uses the Admin SDK, which bypasses these rules entirely.
+    match /mail/{document} {
+      allow create: if isAdmin();
+      allow read, update, delete: if false;
+    }
+
     // Everything else — unchanged in behavior from before this fix, just
     // now listed explicitly instead of relying on one catch-all wildcard.
     match /users/{uid} {

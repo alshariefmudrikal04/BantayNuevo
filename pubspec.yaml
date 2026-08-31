@@ -62,6 +62,16 @@ dependencies:
   # core/services/alarm_sound_service.dart and assets/sounds/README.md
   audioplayers: ^6.1.0
 
+  # Barangay Admin dashboard (Prompt 14) — file_picker lets an admin pick
+  # an alarm-sound file (and other future file inputs) from disk. The
+  # picked sound is uploaded to Cloudinary and its URL stored org-wide in
+  # Firestore (config/alarm_sounds) — see AdminRepository.uploadAlarmSound
+  # and core/services/alarm_sound_service.dart. An earlier per-tanod local
+  # picker (path_provider + shared_preferences) was tried and dropped in
+  # favor of this single, admin-controlled, org-wide version.
+  file_picker: ^8.1.3
+  path: ^1.9.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

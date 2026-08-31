@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../features/auth/data/auth_repository.dart';
 import '../../features/auth/screens/role_select_screen.dart';
+import '../../features/auth/screens/verification_pending_screen.dart';
 import '../../features/resident/screens/resident_shell_screen.dart';
 import '../../features/tanod/screens/tanod_home_screen.dart';
+import '../../features/admin/screens/admin_home_screen.dart';
 import '../widgets/coming_soon_screen.dart';
 
 /// Root auth/role gate. Listens to AuthRepository.authStateChanges and shows:
@@ -33,6 +35,12 @@ class AuthGate extends StatelessWidget {
         }
 
         return switch (user.role) {
+          // A resident whose ID + face photos haven't been approved by an
+          // admin yet (or were rejected) never reaches the real resident
+          // app — see VerificationStatus on UserModel and the admin-side
+          // Verifications queue (AdminVerificationsSection).
+          UserRole.resident when user.verificationStatus != VerificationStatus.approved =>
+            VerificationPendingScreen(user: user, onLogout: authRepository.logout),
           UserRole.resident => ResidentShellScreen(user: user),
           // TODO(Prompt 9+): replace with the full TanodDashboardScreen
           // (report review, etc.) once its UI reference is provided —
@@ -43,6 +51,8 @@ class AuthGate extends StatelessWidget {
               roleLabel: 'Police',
               onLogout: authRepository.logout,
             ),
+          // Prompt 14 — Barangay Admin PC/web dashboard.
+          UserRole.admin => AdminHomeScreen(user: user),
         };
       },
     );
