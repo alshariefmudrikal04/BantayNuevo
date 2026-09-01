@@ -232,16 +232,34 @@ class _SosScreenState extends State<SosScreen> {
   }
 
   /// Dismisses the current alert view and returns to the panic button.
-  /// Skips the Firestore write entirely if the alert already expired —
-  /// firestore.rules treats 'expired' as a fully terminal status (no
-  /// further transitions, matching "EXPIRED → CANNOT BE ACCEPTED"), so
-  /// attempting markResolved() on one would just fail with a permission
-  /// error. There's nothing to update server-side in that case anyway —
-  /// this is purely resetting local state so the resident can try again.
-  Future<void> _markResolved({required bool alreadyExpired}) async {
+  ///
+  /// [currentStatus] is what the resident's own screen last saw via the
+  /// live stream — this matters because if a tanod or admin already
+  /// closed this alert first (see AdminRepository.closeSosAlert /
+  /// tanod_report_review_screen's own resolve action), the alert is
+  /// already `closed` in Firestore. Attempting markResolved() again in
+  /// that case used to hang the whole screen: firestore.rules correctly
+  /// rejects any write to an already-closed/expired alert
+  /// (`resource.data.status != 'closed'` in the update rule), that
+  /// rejection threw with nothing catching it, and the setState that
+  /// would've cleared _activeAlertId never ran — leaving the resident
+  /// stuck looking at the map with no way back. Fixed two ways: (1) skip
+  /// the write entirely when we already know it's closed/expired, since
+  /// there's nothing to update, and (2) wrap the write in try/catch so
+  /// ANY future failure here still clears local state instead of
+  /// stranding the screen.
+  Future<void> _markResolved({required bool alreadyTerminal}) async {
     _locationTimer?.cancel();
-    if (_activeAlertId != null && !alreadyExpired) {
-      await _sosRepository.markResolved(_activeAlertId!);
+    if (_activeAlertId != null && !alreadyTerminal) {
+      try {
+        await _sosRepository.markResolved(_activeAlertId!);
+      } catch (_) {
+        // Already closed/expired server-side, or a transient network
+        // error — either way, nothing left to do server-side, and the
+        // resident tapped a button asking to leave this screen. Fall
+        // through to clearing local state below rather than leaving
+        // them stuck.
+      }
     }
     if (!mounted) return;
     setState(() {
@@ -250,7 +268,7 @@ class _SosScreenState extends State<SosScreen> {
       _lastKnownPosition = null;
       _selectedType = null;
     });
-    _showSnack(alreadyExpired ? 'You can send a new SOS if you still need help.' : 'Marked resolved.');
+    _showSnack(alreadyTerminal ? 'You can send a new SOS if you still need help.' : 'Marked resolved.');
   }
 
   void _showSnack(String message, {bool isError = false}) {
@@ -451,13 +469,19 @@ class _SosScreenState extends State<SosScreen> {
 
         final status = alert?.status ?? SosStatus.active;
         final isExpired = status == SosStatus.expired || alert?.isExpired == true;
+        // "Terminal" = nothing left to write server-side, whether that's
+        // because it timed out (expired) or because a tanod/admin already
+        // closed it first — see _markResolved's doc comment for why this
+        // distinction is what fixes the old stuck-on-map bug.
+        final isClosedByOther = status == SosStatus.closed;
+        final isTerminal = isExpired || isClosedByOther;
         final statusText = isExpired
             ? 'No one responded in time — this alert has expired'
             : switch (status) {
                 SosStatus.active => 'Waiting for a responder...',
                 SosStatus.responded => '${alert?.responderName ?? 'A responder'} is on the way',
                 SosStatus.arrived => '${alert?.responderName ?? 'A responder'} has arrived',
-                SosStatus.closed => 'Marked resolved',
+                SosStatus.closed => 'This alert was marked resolved',
                 SosStatus.expired => 'No one responded in time — this alert has expired',
               };
         final statusColor = isExpired
@@ -469,6 +493,15 @@ class _SosScreenState extends State<SosScreen> {
                 SosStatus.closed => AppColors.resolvedFg,
                 SosStatus.expired => AppColors.urgent,
               };
+
+        // Wording depends on where things stand: nobody's engaged yet
+        // (active, no responder) → framed as a cancel, since that's most
+        // likely an accidental press; a responder is already involved →
+        // framed as resolving; already closed by someone else, or expired
+        // → just a way back to the panic button, no write happens either way.
+        final buttonLabel = isTerminal
+            ? (isExpired ? 'Send a new SOS' : 'Back to home')
+            : (status == SosStatus.active ? 'Cancel this SOS — sent by accident?' : "I'm safe now — mark resolved");
 
         return Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -499,9 +532,9 @@ class _SosScreenState extends State<SosScreen> {
               ),
               const SizedBox(height: 12),
               AppButton(
-                label: isExpired ? 'Send a new SOS' : "I'm safe now — mark resolved",
+                label: buttonLabel,
                 variant: AppButtonVariant.ghost,
-                onPressed: () => _markResolved(alreadyExpired: isExpired),
+                onPressed: () => _markResolved(alreadyTerminal: isTerminal),
               ),
             ],
           ),
