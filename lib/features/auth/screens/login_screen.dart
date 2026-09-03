@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../../models/user_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -7,10 +6,16 @@ import '../../../core/widgets/app_button.dart';
 import '../data/auth_repository.dart';
 import 'register_screen.dart';
 
+/// The app's single sign-in screen — no role picker, no "which login are
+/// you" branching. Whoever's account this is (resident, tanod, police, or
+/// admin) gets routed to the right home screen automatically by AuthGate
+/// (core/router/app_router.dart), which reads the role straight off their
+/// Firestore user doc the moment they're signed in. This replaced an
+/// earlier role_select_screen.dart that asked the person to pick a role
+/// card before even seeing a login form — redundant once every account
+/// already knows its own role server-side.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, required this.role});
-
-  final UserRole role;
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -36,27 +41,16 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final user = await _authRepository.login(
+      await _authRepository.login(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      if (user.role != widget.role) {
-        // Signed in fine, but this account's real role (from Firestore)
-        // doesn't match the tab they picked on role_select_screen.
-        setState(() {
-          _error =
-              'This account is registered as ${user.role.displayLabel}, not ${widget.role.displayLabel}.';
-          _loading = false;
-        });
-        await _authRepository.logout();
-        return;
-      }
-      // AuthGate (core/router/app_router.dart) already picked up the signed-in
-      // user in the background — but LoginScreen was pushed on top of it, so
-      // we need to pop back to root ourselves for that to become visible.
-      if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
+      // Nothing else to do here — AuthGate is already listening to
+      // authStateChanges in the background and will swap itself to the
+      // right home screen for whatever role this account turns out to be
+      // the instant Firestore confirms it. LoginScreen IS that root
+      // screen now (see app_router.dart), so there's no route to pop
+      // back to — just let the StreamBuilder above take over.
     } catch (e) {
       setState(() {
         _error = 'Could not sign in: $e';
@@ -69,45 +63,59 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(title: Text('${widget.role.displayLabel} login')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Welcome back', style: AppTypography.display(fontSize: 22)),
-              const SizedBox(height: 4),
-              Text('Sign in to continue as ${widget.role.displayLabel}.', style: AppTypography.bodySoft(fontSize: 12.5)),
-              const SizedBox(height: 24),
-              _Field(label: 'Email', controller: _emailController, keyboardType: TextInputType.emailAddress),
-              const SizedBox(height: 12),
-              _Field(label: 'Password', controller: _passwordController, obscure: true),
-              if (_error != null) ...[
-                const SizedBox(height: 10),
-                Text(_error!, style: AppTypography.mono(fontSize: 11, color: AppColors.urgent)),
-              ],
-              const SizedBox(height: 20),
-              AppButton(
-                label: _loading ? 'Signing in...' : 'Log in',
-                onPressed: _loading ? null : _submit,
-              ),
-              const SizedBox(height: 12),
-              Center(
-                child: widget.role == UserRole.resident
-                    ? TextButton(
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                        ),
-                        child: const Text('No account yet? Register'),
-                      )
-                    : Text(
-                        'No account? ${widget.role.displayLabel} accounts are created by a barangay admin.',
-                        textAlign: TextAlign.center,
-                        style: AppTypography.bodySoft(fontSize: 11.5),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.teal, shape: BoxShape.circle)),
+                      const SizedBox(width: 8),
+                      Text('Bantay Nuevo', style: AppTypography.mono(fontSize: 11, letterSpacing: 0.4)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Welcome back', style: AppTypography.display(fontSize: 24)),
+                  const SizedBox(height: 4),
+                  Text('Sign in to continue.', style: AppTypography.bodySoft(fontSize: 12.5)),
+                  const SizedBox(height: 24),
+                  _Field(label: 'Email', controller: _emailController, keyboardType: TextInputType.emailAddress),
+                  const SizedBox(height: 12),
+                  _Field(label: 'Password', controller: _passwordController, obscure: true),
+                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    Text(_error!, style: AppTypography.mono(fontSize: 11, color: AppColors.urgent)),
+                  ],
+                  const SizedBox(height: 20),
+                  AppButton(
+                    label: _loading ? 'Signing in...' : 'Log in',
+                    onPressed: _loading ? null : _submit,
+                  ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
                       ),
+                      child: const Text('No account yet? Register as a resident'),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: Text(
+                      'Tanod, police, and admin accounts are created by a barangay admin.',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.mono(fontSize: 10.5, color: AppColors.inkSoft),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

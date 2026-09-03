@@ -106,7 +106,7 @@ class AdminRepository {
         .where('role', isEqualTo: UserRole.resident.value)
         .where('verificationStatus', isEqualTo: VerificationStatus.pending.value)
         .snapshots()
-        .map((snap) => snap.docs.map((d) => UserModel.fromFirestore(d.data(), d.id)).toList());
+        .map((snap) => snap.docs.map((d) =>  UserModel.fromFirestore(d.data(), d.id)).toList());
   }
 
   Future<void> approveVerification(UserModel resident) async {

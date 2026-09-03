@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../features/auth/data/auth_repository.dart';
-import '../../features/auth/screens/role_select_screen.dart';
+import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/verification_pending_screen.dart';
 import '../../features/resident/screens/resident_shell_screen.dart';
 import '../../features/tanod/screens/tanod_home_screen.dart';
@@ -9,7 +9,9 @@ import '../../features/admin/screens/admin_home_screen.dart';
 import '../widgets/coming_soon_screen.dart';
 
 /// Root auth/role gate. Listens to AuthRepository.authStateChanges and shows:
-/// - RoleSelectScreen when signed out
+/// - LoginScreen when signed out — a single form, no role picker; whoever
+///   signs in gets routed by the switch below based on their account's
+///   actual role in Firestore, not a role they picked beforehand.
 /// - the correct role's home screen when signed in
 ///
 /// This is the single place that decides "which screen is home" per role —
@@ -31,7 +33,7 @@ class AuthGate extends StatelessWidget {
 
         final user = snapshot.data;
         if (user == null) {
-          return const RoleSelectScreen();
+          return const LoginScreen();
         }
 
         return switch (user.role) {
