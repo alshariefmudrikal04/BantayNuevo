@@ -10,6 +10,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/live_map.dart';
+import '../../../core/services/philsms_service.dart';
 import '../data/sos_repository.dart';
 import '../data/emergency_contact_repository.dart';
 import '../../../core/utils/geofence.dart';
@@ -205,6 +206,7 @@ class _SosScreenState extends State<SosScreen> {
       });
       _startLiveLocationUpdates(alertId);
       _showSnack('Distress signal sent — Tanod and your emergency contacts are being notified.');
+      unawaited(_notifyEmergencyContacts(alertId: alertId, position: position));
     } on TimeoutException {
       _showSnack(
         'Could not send SOS — no internet connection. Connect to WiFi or mobile data and try again.',
@@ -217,8 +219,28 @@ class _SosScreenState extends State<SosScreen> {
     }
   }
 
-  void _startLiveLocationUpdates(String alertId) {
-    _locationTimer?.cancel();
+  /// Texts every saved emergency contact via PhilSMS, same message format
+  /// and intent as the (currently undeployed, Blaze-gated) onSosCreated
+  /// Cloud Function this screen's own doc comment describes — this is the
+  /// client-side stand-in filling that gap in the meantime. Fire-and-forget
+  /// from the caller's perspective (see `unawaited` at the call site): a
+  /// slow or failed SMS send should never block the resident from seeing
+  /// their own live-tracking view, which is already up by the time this runs.
+  Future<void> _notifyEmergencyContacts({required String alertId, required Position position}) async {
+    if (_contacts.isEmpty) return;
+    final mapsLink = 'https://maps.google.com/?q=${position.latitude},${position.longitude}';
+    final message = '[EMERGENCY - Bantay Nuevo] ${widget.user.name} needs help. Location: $mapsLink';
+
+    final sent = await PhilSmsService.sendSms(
+      numbers: _contacts.map((c) => c.phone).toList(),
+      message: message,
+    );
+    if (sent) {
+      await _sosRepository.markContactsNotified(alertId, _contacts.map((c) => c.id).toList());
+    }
+  }
+
+  void _startLiveLocationUpdates(String alertId) {    _locationTimer?.cancel();
     _locationTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
       final position = await _captureLocation();
       if (position == null) return;
