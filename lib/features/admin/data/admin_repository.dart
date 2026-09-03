@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:firebase_core/firebase_core.dart';
 
 import '../../../core/services/cloudinary_uploader.dart';
+import '../../../core/services/philsms_service.dart';
 import '../../../models/report_model.dart';
 import '../../../models/sos_alert_model.dart';
 import '../../../models/user_model.dart';
@@ -106,7 +107,7 @@ class AdminRepository {
         .where('role', isEqualTo: UserRole.resident.value)
         .where('verificationStatus', isEqualTo: VerificationStatus.pending.value)
         .snapshots()
-        .map((snap) => snap.docs.map((d) =>  UserModel.fromFirestore(d.data(), d.id)).toList());
+        .map((snap) => snap.docs.map((d) => UserModel.fromFirestore(d.data(), d.id)).toList());
   }
 
   Future<void> approveVerification(UserModel resident) async {
@@ -121,6 +122,12 @@ class AdminRepository {
           'Hi ${resident.name},\n\nYour resident account has been verified by a barangay admin. '
           'You can now log in and use the app, including SOS.\n\n— Barangay Camino Nuevo',
     );
+    if (resident.phone.isNotEmpty) {
+      await PhilSmsService.sendSms(
+        numbers: [resident.phone],
+        message: '[Bantay Nuevo] Hi ${resident.name}, your account is now verified. You can log in and use the app, including SOS.',
+      );
+    }
   }
 
   Future<void> rejectVerification(UserModel resident, String reason) async {
@@ -136,6 +143,12 @@ class AdminRepository {
           'your account.\n\nReason: $reason\n\nIf you believe this is a mistake, please visit the '
           'barangay hall in person.\n\n— Barangay Camino Nuevo',
     );
+    if (resident.phone.isNotEmpty) {
+      await PhilSmsService.sendSms(
+        numbers: [resident.phone],
+        message: '[Bantay Nuevo] Hi ${resident.name}, your account could not be verified. Reason: $reason. Please visit the barangay hall.',
+      );
+    }
   }
 
   /// Writes a doc to the `mail` collection, the trigger document format

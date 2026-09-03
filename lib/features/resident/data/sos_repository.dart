@@ -101,4 +101,13 @@ class SosRepository {
   Future<void> markResolved(String alertId) {
     return _alerts.doc(alertId).update({'status': 'closed'});
   }
+
+  /// Records which emergency contacts were successfully texted for this
+  /// alert — same bookkeeping onSosCreated does server-side
+  /// (`contactsNotified` in the Cloud Function), kept here too now that
+  /// sos_screen.dart sends the SMS itself client-side (see
+  /// PhilSmsService / philsms_config.dart's doc comments for why).
+  Future<void> markContactsNotified(String alertId, List<String> contactIds) {
+    return _alerts.doc(alertId).update({'contactsNotified': contactIds});
+  }
 }
