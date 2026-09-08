@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -51,14 +51,21 @@ class AuthRepository {
   /// Cloudinary (same unsigned-preset flow as evidence files — see
   /// CloudinaryUploader), and starts out `pending` until a Barangay Admin
   /// reviews both in the dashboard's Verifications queue.
+  ///
+  /// Takes raw bytes + filenames rather than dart:io Files — see
+  /// CloudinaryUploader's doc comment for why that matters wherever this
+  /// runs in a browser (register_screen.dart reads XFile.readAsBytes()
+  /// before calling this, which works on every platform).
   Future<UserModel> register({
     required String name,
     required String email,
     required String phone,
     required String purok,
     required String password,
-    required File idPhoto,
-    required File facePhoto,
+    required Uint8List idPhotoBytes,
+    required String idPhotoFilename,
+    required Uint8List facePhotoBytes,
+    required String facePhotoFilename,
   }) async {
     final credential = await _auth.createUserWithEmailAndPassword(
       email: email,
@@ -66,8 +73,8 @@ class AuthRepository {
     );
     final uid = credential.user!.uid;
 
-    final idPhotoUrl = await CloudinaryUploader.upload(idPhoto);
-    final facePhotoUrl = await CloudinaryUploader.upload(facePhoto);
+    final idPhotoUrl = await CloudinaryUploader.uploadBytes(idPhotoBytes, filename: idPhotoFilename);
+    final facePhotoUrl = await CloudinaryUploader.uploadBytes(facePhotoBytes, filename: facePhotoFilename);
 
     final user = UserModel(
       uid: uid,

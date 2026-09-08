@@ -8,6 +8,7 @@ import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/toggle_row.dart';
 import '../../../../core/widgets/section_title.dart';
 import '../../../../core/widgets/list_item_tile.dart';
+import '../../data/pin_security_repository.dart';
 import 'set_pin_screen.dart';
 
 class SecurityScreen extends StatefulWidget {
@@ -19,6 +20,7 @@ class SecurityScreen extends StatefulWidget {
 
 class _SecurityScreenState extends State<SecurityScreen> {
   static const _storage = FlutterSecureStorage();
+  final _pinSecurityRepository = PinSecurityRepository();
   final _localAuth = LocalAuthentication();
 
   bool _pinOnOpen = false;
@@ -35,10 +37,12 @@ class _SecurityScreenState extends State<SecurityScreen> {
   }
 
   Future<void> _load() async {
-    final pin = await _storage.read(key: 'security_pin_on_open');
+    // pinOnOpen/hasPin come from the account (Firestore, cached locally) —
+    // see PinSecurityRepository's doc comment for why. Biometric/auto-lock
+    // stay purely local, device-specific settings.
+    final pinSettings = await _pinSecurityRepository.load();
     final bio = await _storage.read(key: 'security_biometric');
     final auto = await _storage.read(key: 'security_auto_lock');
-    final pinHash = await _storage.read(key: 'security_pin_hash');
 
     var biometricAvailable = false;
     try {
@@ -49,11 +53,11 @@ class _SecurityScreenState extends State<SecurityScreen> {
 
     if (!mounted) return;
     setState(() {
-      _pinOnOpen = pin == 'true';
+      _pinOnOpen = pinSettings.pinOnOpen;
       _biometric = bio == 'true';
       _autoLock = auto == 'true';
       _biometricAvailable = biometricAvailable;
-      _hasPin = pinHash != null;
+      _hasPin = pinSettings.hasPin;
       _loading = false;
     });
   }
@@ -80,7 +84,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
       if (!created) return;
     }
     setState(() => _pinOnOpen = value);
-    _set('security_pin_on_open', value);
+    await _pinSecurityRepository.setPinOnOpen(value);
   }
 
   @override
@@ -147,7 +151,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
                 ],
                 const SizedBox(height: 8),
                 Text(
-                  'These settings are stored securely on this device only — they don\'t sync across devices.',
+                  'Your PIN and this toggle apply to your account everywhere — logging in on another '
+                  'device enforces the same PIN. Biometric and re-lock timing are set per device.',
                   style: AppTypography.bodySoft(fontSize: 10.5),
                 ),
               ],

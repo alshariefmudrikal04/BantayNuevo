@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'pin_lock_screen.dart';
 import '../utils/sensitive_gate_controller.dart';
 import '../theme/app_colors.dart';
+import '../../features/resident/data/pin_security_repository.dart';
 
 /// Wraps My Reports, Report Detail, and Evidence Vault specifically — NOT
 /// the whole app (see sensitive_gate_controller.dart for why). If the
@@ -20,6 +21,7 @@ class SensitiveContentGate extends StatefulWidget {
 
 class _SensitiveContentGateState extends State<SensitiveContentGate> {
   static const _storage = FlutterSecureStorage();
+  final _pinSecurityRepository = PinSecurityRepository();
 
   bool _checking = true;
   bool _locked = false;
@@ -41,12 +43,14 @@ class _SensitiveContentGateState extends State<SensitiveContentGate> {
       });
       return;
     }
-    final pin = await _storage.read(key: 'security_pin_on_open');
+    // pinOnOpen + hasPin come from the account (Firestore, cached locally)
+    // — see PinSecurityRepository — so a PIN turned on from another
+    // device still locks this one. Biometric stays device-local.
+    final pinSettings = await _pinSecurityRepository.load();
     final bio = await _storage.read(key: 'security_biometric');
-    final hash = await _storage.read(key: 'security_pin_hash');
     // Only lock if the resident actually opted in AND has a PIN on file to
     // check against — otherwise there's nothing configured to enforce.
-    final configured = (pin == 'true' || bio == 'true') && hash != null;
+    final configured = (pinSettings.pinOnOpen || bio == 'true') && pinSettings.hasPin;
     if (!mounted) return;
     setState(() {
       _configured = configured;

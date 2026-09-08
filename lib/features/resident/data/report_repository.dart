@@ -1,17 +1,18 @@
-import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:http/http.dart' as http;
 import '../../../models/report_model.dart';
-import '../../../core/config/cloudinary_config.dart';
+import '../../../core/services/cloudinary_uploader.dart';
 
-/// A locally-picked evidence file, before it's uploaded. Kept decoupled from
-/// image_picker's XFile so this repository doesn't depend on UI-layer types.
+/// A locally-picked evidence file, before it's uploaded. Holds raw bytes
+/// rather than a dart:io File — image_picker's XFile.readAsBytes() works
+/// identically on every platform including Flutter Web, whereas a real
+/// File object only works on native (see CloudinaryUploader's doc comment
+/// for the exact web failure this avoids).
 class PickedEvidence {
-  const PickedEvidence({required this.type, required this.file, required this.name});
+  const PickedEvidence({required this.type, required this.bytes, required this.name});
 
   final String type; // "photo" | "video"
-  final File file;
+  final Uint8List bytes;
   final String name;
 }
 
@@ -27,22 +28,30 @@ class ReportRepository {
   CollectionReference<Map<String, dynamic>> get _reports => _firestore.collection('reports');
 
   /// Live stream of a resident's most recent reports, newest first.
+  ///
+  /// Sorted/limited client-side rather than via Firestore's own
+  /// orderBy+limit — a .where() + .orderBy() on different fields needs a
+  /// composite index (an easy-to-forget manual step in the Firebase
+  /// console; until it's created, this just silently fails with a
+  /// precondition error). A resident's own report count is always small
+  /// enough that fetching all of them and sorting/limiting in Dart avoids
+  /// that setup step entirely.
   Stream<List<ReportModel>> streamRecentReports(String residentId, {int limit = 2}) {
-    return _reports
-        .where('residentId', isEqualTo: residentId)
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) => ReportModel.fromFirestore(d.data(), d.id)).toList());
+    return _reports.where('residentId', isEqualTo: residentId).snapshots().map((snap) {
+      final reports = snap.docs.map((d) => ReportModel.fromFirestore(d.data(), d.id)).toList();
+      reports.sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+      return reports.take(limit).toList();
+    });
   }
 
   /// Live stream of ALL of a resident's reports — used by my_reports_screen.dart (Prompt 5).
+  /// Same client-side sort as streamRecentReports above, same reasoning.
   Stream<List<ReportModel>> streamAllReports(String residentId) {
-    return _reports
-        .where('residentId', isEqualTo: residentId)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) => ReportModel.fromFirestore(d.data(), d.id)).toList());
+    return _reports.where('residentId', isEqualTo: residentId).snapshots().map((snap) {
+      final reports = snap.docs.map((d) => ReportModel.fromFirestore(d.data(), d.id)).toList();
+      reports.sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+      return reports;
+    });
   }
 
   /// Live stream of a single report — used by report_detail_screen.dart and
@@ -112,27 +121,8 @@ class ReportRepository {
     return docRef.id;
   }
 
-  /// Uploads one file to Cloudinary via an unsigned preset and returns the
-  /// resulting secure_url. Throws if the upload fails (e.g. placeholder
-  /// config values never replaced with real ones) so the UI can show a
-  /// clear error instead of silently losing evidence.
-  Future<String> _uploadToCloudinary(PickedEvidence item) async {
-    final request = http.MultipartRequest('POST', CloudinaryConfig.uploadUrl)
-      ..fields['upload_preset'] = CloudinaryConfig.uploadPreset
-      ..files.add(await http.MultipartFile.fromPath('file', item.file.path));
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode != 200) {
-      throw Exception('Cloudinary upload failed (${response.statusCode}): ${response.body}');
-    }
-
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final url = body['secure_url'] as String?;
-    if (url == null) {
-      throw Exception('Cloudinary upload succeeded but no secure_url found in response.');
-    }
-    return url;
+  /// Uploads one evidence file's bytes via the shared CloudinaryUploader.
+  Future<String> _uploadToCloudinary(PickedEvidence item) {
+    return CloudinaryUploader.uploadBytes(item.bytes, filename: item.name);
   }
 }

@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:vibration/vibration.dart';
 
 import '../../models/sos_alert_model.dart';
 
-/// Plays a distinct alarm sound on the tanod side depending on which
-/// emergency type a resident picked when sending SOS (sos_screen.dart's
-/// type-selection step).
+/// Plays a distinct alarm sound — AND vibrates — on the tanod side,
+/// depending on which emergency type a resident picked when sending SOS
+/// (sos_screen.dart's type-selection step). Vibration matters as much as
+/// sound here: a tanod's phone on silent, or just in a pocket on a noisy
+/// street, can easily miss an audio-only alert entirely.
 ///
 /// Sound source, checked in this order:
 /// 1. The org-wide sound set by a Barangay Admin (AdminAlarmSoundsScreen,
@@ -66,6 +71,7 @@ class AlarmSoundService {
   /// matters far more than the sound cue does.
   static Future<void> play(EmergencyType type) async {
     _ensureListening();
+    unawaited(_vibrate());
     try {
       await _player.stop(); // don't stack overlapping alarms if several alerts land in quick succession
       final remoteUrl = _remoteUrls[type.value];
@@ -77,6 +83,26 @@ class AlarmSoundService {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('AlarmSoundService: could not play sound for ${type.value} — $e');
+      }
+    }
+  }
+
+  /// Three long, deliberate pulses (800ms on, 400ms off) — distinct from
+  /// the quick single buzz of a normal notification, meant to actually
+  /// get noticed. Runs independently of the sound (own try/catch, doesn't
+  /// block or get blocked by it) since plenty of real devices — web,
+  /// desktop, older/budget Android phones without a vibration motor —
+  /// simply can't vibrate at all, and that should never take the sound
+  /// down with it.
+  static Future<void> _vibrate() async {
+    try {
+      await Vibration.cancel(); // don't stack pulses if several alerts land in quick succession
+      final hasVibrator = await Vibration.hasVibrator();
+      if (hasVibrator != true) return;
+      await Vibration.vibrate(pattern: [0, 800, 400, 800, 400, 800]);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('AlarmSoundService: could not vibrate — $e');
       }
     }
   }

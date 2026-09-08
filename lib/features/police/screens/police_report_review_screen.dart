@@ -1,66 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:printing/printing.dart';
 import '../../../models/user_model.dart';
 import '../../../models/report_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/section_title.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/live_map.dart';
 import '../../../core/widgets/photo_viewer_screen.dart';
-import '../data/tanod_report_repository.dart';
-import '../services/report_pdf_generator.dart';
+import '../data/police_repository.dart';
 
-class TanodReportReviewScreen extends StatefulWidget {
-  const TanodReportReviewScreen({super.key, required this.reportId, required this.user});
+/// Mirrors TanodReportReviewScreen. Simpler than the tanod version in one
+/// respect — since PoliceReportsScreen only ever lists reports already
+/// assigned to this officer (see PoliceRepository), there's no "assign to
+/// me" step here; status updates are always available.
+class PoliceReportReviewScreen extends StatefulWidget {
+  const PoliceReportReviewScreen({super.key, required this.reportId, required this.user});
 
   final String reportId;
   final UserModel user;
 
   @override
-  State<TanodReportReviewScreen> createState() => _TanodReportReviewScreenState();
+  State<PoliceReportReviewScreen> createState() => _PoliceReportReviewScreenState();
 }
 
-class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
-  final _repository = TanodReportRepository();
+class _PoliceReportReviewScreenState extends State<PoliceReportReviewScreen> {
+  final _repository = PoliceRepository();
+  late final Stream<ReportModel> _reportStream = _repository.streamReport(widget.reportId);
 
-  // Created once, same "don't recreate the stream in build()" fix used
-  // everywhere else in this repo (AGENTS.md §8 bugfix note).
-  //
-  // asBroadcastStream() — this now needs two independent listeners: the
-  // main StreamBuilder driving the body, and the small one below driving
-  // the app bar's "Generate report" button (which needs to know the
-  // latest report to hand off, without re-triggering a stream listen —
-  // a plain Firestore snapshots() stream is single-subscription only and
-  // would throw on a second listen()). Same fix tanod_sos_screen.dart
-  // uses for its own two-listener situation.
-  late final Stream<ReportModel> _reportStream = _repository.streamReport(widget.reportId).asBroadcastStream();
-
-  // Cached per uid (works for both residentId and assignedTanodId lookups),
-  // same pattern as tanod_sos_screen.dart — avoids refetching a name on
-  // every stream tick.
   final Map<String, Future<String?>> _nameFutures = {};
   Future<String?> _userNameFuture(String uid) {
     return _nameFutures.putIfAbsent(uid, () => _repository.fetchUserName(uid));
   }
 
-  bool _assigning = false;
   bool _updatingStatus = false;
-  bool _generatingPdf = false;
-
-  // Evidence access is logged once per screen visit, not once per stream
-  // tick — guarded so re-renders from the report's own status/assignment
-  // changes don't spam the accessLog.
   bool _loggedAccess = false;
 
   void _logAccessOnce() {
     if (_loggedAccess) return;
     _loggedAccess = true;
-    _repository.appendAccessLog(widget.reportId, widget.user.name);
+    _repository.appendAccessLog(widget.reportId, '${widget.user.name} (Police)');
   }
 
   AppStatus _toAppStatus(ReportStatus s) => switch (s) {
@@ -81,19 +62,13 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
         _ => Icons.description_outlined,
       };
 
-  /// Same viewing behavior as the resident's own evidence_vault_screen.dart
-  /// — photos open in-app zoomable, everything else hands off to whatever
-  /// app the device has for that file type. Still strictly view-only,
-  /// nothing here downloads or deletes anything (AGENTS.md §8).
   Future<void> _openFile(BuildContext context, EvidenceFile file) async {
     if (file.url.isEmpty) {
       _showSnack("This file doesn't have a valid link.", isError: true);
       return;
     }
     if (file.type == 'photo') {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => PhotoViewerScreen(url: file.url, title: file.name)),
-      );
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => PhotoViewerScreen(url: file.url, title: file.name)));
       return;
     }
     final uri = Uri.parse(file.url);
@@ -111,40 +86,14 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
     );
   }
 
-  Future<void> _assignToMe(String residentId) async {
-    setState(() => _assigning = true);
-    try {
-      await _repository.assignToTanod(
-        widget.reportId,
-        widget.user.uid,
-        widget.user.name,
-        residentId: residentId,
-      );
-    } catch (e) {
-      _showSnack('Could not assign: $e', isError: true);
-    } finally {
-      if (mounted) setState(() => _assigning = false);
-    }
-  }
-
-  /// If the report is unassigned, assigning + setting status happens in
-  /// the same tap (per Prompt 11's "your call on UX, keep it simple").
   Future<void> _setStatus(ReportModel report, ReportStatus status) async {
     setState(() => _updatingStatus = true);
     try {
-      if (report.assignedTanodId == null) {
-        await _repository.assignToTanod(
-          widget.reportId,
-          widget.user.uid,
-          widget.user.name,
-          residentId: report.residentId,
-        );
-      }
       await _repository.updateStatus(
         widget.reportId,
         status,
         residentId: report.residentId,
-        tanodName: widget.user.name,
+        policeName: widget.user.name,
       );
     } catch (e) {
       _showSnack('Could not update status: $e', isError: true);
@@ -153,69 +102,19 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
     }
   }
 
-  /// "Generate Reports" — thesis §3.2.1's Barangay Official functional
-  /// requirement, previously unimplemented anywhere in the app. Builds a
-  /// case-summary PDF (see ReportPdfGenerator's doc comment on exactly
-  /// what it does and doesn't include) and hands it straight to the OS
-  /// print/share/save-as-PDF sheet via `printing` — no file path or
-  /// storage-permission handling needed on our end.
-  Future<void> _generateReport(ReportModel report) async {
-    setState(() => _generatingPdf = true);
-    try {
-      final residentName = await _userNameFuture(report.residentId) ?? 'Resident';
-      final assignedName = report.assignedTanodId != null ? await _userNameFuture(report.assignedTanodId!) : null;
-      final pdf = await ReportPdfGenerator.generate(
-        report: report,
-        residentName: residentName,
-        assignedResponderName: assignedName,
-        generatedByName: widget.user.name,
-      );
-      await Printing.layoutPdf(onLayout: (_) => pdf.save(), name: 'Incident Report - ${report.id}.pdf');
-    } catch (e) {
-      _showSnack('Could not generate report: $e', isError: true);
-    } finally {
-      if (mounted) setState(() => _generatingPdf = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        title: const Text('Report review'),
-        actions: [
-          StreamBuilder<ReportModel>(
-            stream: _reportStream,
-            builder: (context, snapshot) {
-              final report = snapshot.data;
-              return IconButton(
-                icon: _generatingPdf
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.picture_as_pdf_outlined),
-                tooltip: 'Generate report',
-                onPressed: _generatingPdf || report == null ? null : () => _generateReport(report),
-              );
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Report review')),
       body: StreamBuilder<ReportModel>(
         stream: _reportStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData) {
-            return const Center(child: Text('Report not found.'));
-          }
+          if (!snapshot.hasData) return const Center(child: Text('Report not found.'));
           final report = snapshot.data!;
-          final iAmAssigned = report.assignedTanodId == widget.user.uid;
-          final assignedToSomeoneElse = report.assignedTanodId != null && !iAmAssigned;
-          final canUpdateStatus = report.assignedTanodId == null || iAmAssigned;
-
-          // Fires once the report has actually loaded, i.e. once evidence
-          // is genuinely visible on screen.
           _logAccessOnce();
 
           return ListView(
@@ -236,6 +135,12 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
                   style: AppTypography.mono(fontSize: 10.5),
                 ),
               ),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(20)),
+                child: Text('Escalated to Police', style: AppTypography.mono(fontSize: 9.5, color: AppColors.teal)),
+              ),
               const SizedBox(height: 14),
 
               const SectionTitle('Description'),
@@ -245,11 +150,7 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
               if (report.lat != null && report.lng != null)
                 SizedBox(
                   height: 180,
-                  child: LiveMap(
-                    selfLat: report.lat!,
-                    selfLng: report.lng!,
-                    selfLabel: report.locationAddress ?? 'Incident location',
-                  ),
+                  child: LiveMap(selfLat: report.lat!, selfLng: report.lng!, selfLabel: report.locationAddress ?? 'Incident location'),
                 )
               else
                 AppCard(child: Text('No location attached to this report.', style: AppTypography.bodySoft(fontSize: 12))),
@@ -258,63 +159,27 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
                 Text(report.locationAddress!, style: AppTypography.bodySoft(fontSize: 11)),
               ],
 
-              const SectionTitle('Assignment'),
-              if (assignedToSomeoneElse)
-                FutureBuilder<String?>(
-                  future: _userNameFuture(report.assignedTanodId!),
-                  builder: (context, nameSnap) => AppCard(
-                    child: Text('Assigned to ${nameSnap.data ?? 'another tanod'}', style: AppTypography.body(fontSize: 12.5)),
-                  ),
-                )
-              else if (iAmAssigned)
-                AppCard(child: Text('Assigned to ${widget.user.name} (you)', style: AppTypography.body(fontSize: 12.5)))
-              else
-                AppButton(
-                  label: _assigning ? 'Assigning...' : 'Assign to me',
-                  onPressed: _assigning ? null : () => _assignToMe(report.residentId),
-                ),
-
               const SectionTitle('Status'),
               Row(
                 children: [
-                  Expanded(
-                    child: _StatusChoiceButton(
-                      label: 'Pending',
-                      selected: report.status == ReportStatus.pending,
-                      color: AppColors.amber,
-                      enabled: canUpdateStatus && !_updatingStatus,
-                      onTap: () => _setStatus(report, ReportStatus.pending),
+                  for (final status in ReportStatus.values) ...[
+                    Expanded(
+                      child: _StatusChoiceButton(
+                        label: status.displayLabel,
+                        selected: report.status == status,
+                        color: status == ReportStatus.resolved
+                            ? AppColors.resolvedFg
+                            : status == ReportStatus.inProgress
+                                ? AppColors.teal
+                                : AppColors.amber,
+                        enabled: !_updatingStatus,
+                        onTap: () => _setStatus(report, status),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _StatusChoiceButton(
-                      label: 'In progress',
-                      selected: report.status == ReportStatus.inProgress,
-                      color: AppColors.teal,
-                      enabled: canUpdateStatus && !_updatingStatus,
-                      onTap: () => _setStatus(report, ReportStatus.inProgress),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _StatusChoiceButton(
-                      label: 'Resolved',
-                      selected: report.status == ReportStatus.resolved,
-                      color: AppColors.resolvedFg,
-                      enabled: canUpdateStatus && !_updatingStatus,
-                      onTap: () => _setStatus(report, ReportStatus.resolved),
-                    ),
-                  ),
+                    if (status != ReportStatus.values.last) const SizedBox(width: 8),
+                  ],
                 ],
               ),
-              if (!canUpdateStatus) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Only the assigned tanod can change this report\'s status.',
-                  style: AppTypography.mono(fontSize: 10, color: AppColors.inkSoft),
-                ),
-              ],
 
               const SectionTitle('Evidence'),
               Container(
@@ -332,8 +197,8 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
                     Expanded(
                       child: Text(
                         "Files are encrypted and locked to this case. You can view them, but they can't be "
-                        "downloaded or deleted from the app — this preserves the evidence chain for the resident "
-                        "and police. Your name and the time you opened this were just logged below.",
+                        "downloaded or deleted from the app — this preserves the evidence chain for court/legal "
+                        "purposes. Your name and the time you opened this were just logged below.",
                         style: AppTypography.bodySoft(fontSize: 11),
                       ),
                     ),
@@ -355,8 +220,7 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
                           Container(
                             width: 38,
                             height: 38,
-                            decoration:
-                                BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(8)),
+                            decoration: BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(8)),
                             child: Icon(_iconFor(file.type), size: 18, color: AppColors.teal),
                           ),
                           const SizedBox(width: 10),
@@ -365,10 +229,7 @@ class _TanodReportReviewScreenState extends State<TanodReportReviewScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(file.name, style: AppTypography.body(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                Text(
-                                  '${file.type} · uploaded ${_formatDate(file.uploadedAt)}',
-                                  style: AppTypography.mono(fontSize: 10),
-                                ),
+                                Text('${file.type} · uploaded ${_formatDate(file.uploadedAt)}', style: AppTypography.mono(fontSize: 10)),
                               ],
                             ),
                           ),
@@ -432,10 +293,7 @@ class _StatusChoiceButton extends StatelessWidget {
         child: Text(
           label,
           textAlign: TextAlign.center,
-          style: AppTypography.mono(
-            fontSize: 10,
-            color: enabled ? (selected ? color : AppColors.inkSoft) : AppColors.line,
-          ),
+          style: AppTypography.mono(fontSize: 10, color: enabled ? (selected ? color : AppColors.inkSoft) : AppColors.line),
         ),
       ),
     );

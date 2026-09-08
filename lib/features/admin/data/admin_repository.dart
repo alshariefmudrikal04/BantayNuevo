@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
@@ -115,18 +115,36 @@ class AdminRepository {
       'verificationStatus': VerificationStatus.approved.value,
       'rejectionReason': FieldValue.delete(),
     });
-    await _sendVerificationEmail(
-      resident,
-      subject: 'Your Bantay Nuevo account is verified',
-      body:
-          'Hi ${resident.name},\n\nYour resident account has been verified by a barangay admin. '
-          'You can now log in and use the app, including SOS.\n\n— Barangay Camino Nuevo',
-    );
-    if (resident.phone.isNotEmpty) {
-      await PhilSmsService.sendSms(
-        numbers: [resident.phone],
-        message: '[Bantay Nuevo] Hi ${resident.name}, your account is now verified. You can log in and use the app, including SOS.',
+    // Notifications are best-effort from here on — the decision itself
+    // (the write above) already succeeded. A failed email/SMS send
+    // (e.g. the `mail` collection's Firestore rule not yet deployed, or
+    // a PhilSMS hiccup) must never bubble up and make the admin think
+    // the APPROVAL failed when it didn't; that's what was actually
+    // happening before this fix, and could send an admin down a
+    // confusing path re-clicking Approve on an already-approved account.
+    try {
+      await _sendVerificationEmail(
+        resident,
+        subject: 'Your Bantay Nuevo account is verified',
+        body:
+            'Hi ${resident.name},\n\nYour resident account has been verified by a barangay admin. '
+            'You can now log in and use the app, including SOS.\n\n— Barangay Camino Nuevo',
       );
+    } catch (_) {
+      // Swallowed on purpose — see comment above.
+    }
+    if (resident.phone.isNotEmpty) {
+      try {
+        await PhilSmsService.sendSms(
+          numbers: [resident.phone],
+          message: '[Bantay Nuevo] Hi ${resident.name}, your account is now verified. You can log in and use the app, including SOS.',
+        );
+      } catch (_) {
+        // Swallowed on purpose — see comment above. PhilSmsService already
+        // fails silently internally, but this guards against any future
+        // change to it (or to _sendVerificationEmail above) reintroducing
+        // a throw here.
+      }
     }
   }
 
@@ -135,19 +153,30 @@ class AdminRepository {
       'verificationStatus': VerificationStatus.rejected.value,
       'rejectionReason': reason,
     });
-    await _sendVerificationEmail(
-      resident,
-      subject: 'Your Bantay Nuevo account could not be verified',
-      body:
-          'Hi ${resident.name},\n\nA barangay admin reviewed your ID and photo and could not verify '
-          'your account.\n\nReason: $reason\n\nIf you believe this is a mistake, please visit the '
-          'barangay hall in person.\n\n— Barangay Camino Nuevo',
-    );
-    if (resident.phone.isNotEmpty) {
-      await PhilSmsService.sendSms(
-        numbers: [resident.phone],
-        message: '[Bantay Nuevo] Hi ${resident.name}, your account could not be verified. Reason: $reason. Please visit the barangay hall.',
+    // Same reasoning as approveVerification above — the decision (the
+    // write above) already succeeded; notification failures must not be
+    // reported back as if the rejection itself failed.
+    try {
+      await _sendVerificationEmail(
+        resident,
+        subject: 'Your Bantay Nuevo account could not be verified',
+        body:
+            'Hi ${resident.name},\n\nA barangay admin reviewed your ID and photo and could not verify '
+            'your account.\n\nReason: $reason\n\nIf you believe this is a mistake, please visit the '
+            'barangay hall in person.\n\n— Barangay Camino Nuevo',
       );
+    } catch (_) {
+      // Swallowed on purpose — see comment above.
+    }
+    if (resident.phone.isNotEmpty) {
+      try {
+        await PhilSmsService.sendSms(
+          numbers: [resident.phone],
+          message: '[Bantay Nuevo] Hi ${resident.name}, your account could not be verified. Reason: $reason. Please visit the barangay hall.',
+        );
+      } catch (_) {
+        // Swallowed on purpose — see comment above.
+      }
     }
   }
 
@@ -298,8 +327,13 @@ class AdminRepository {
   /// Uploads [file] to Cloudinary (same unsigned-preset approach as
   /// evidence uploads — see ReportRepository._uploadToCloudinary) and
   /// records the resulting URL as the org-wide sound for [emergencyTypeValue].
-  Future<void> uploadAlarmSound(String emergencyTypeValue, File file) async {
-    final url = await CloudinaryUploader.upload(file);
+  /// Uploads audio bytes (from file_picker's withData:true — see
+  /// AdminAlarmSoundsSection) to Cloudinary and records the resulting URL
+  /// as the org-wide sound for [emergencyTypeValue]. Bytes rather than a
+  /// File — see CloudinaryUploader's doc comment for why that matters on
+  /// web, which is where this admin dashboard is actually meant to run.
+  Future<void> uploadAlarmSound(String emergencyTypeValue, Uint8List bytes, String filename) async {
+    final url = await CloudinaryUploader.uploadBytes(bytes, filename: filename);
     await _alarmSoundsDoc.set({emergencyTypeValue: url}, SetOptions(merge: true));
   }
 

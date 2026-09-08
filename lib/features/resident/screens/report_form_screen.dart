@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -63,6 +62,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     });
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
+        if (!mounted) return;
         setState(() {
           _loadingLocation = false;
           _locationError = 'Location services are off. You can still submit — turn them on for a more accurate report.';
@@ -74,6 +74,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
         setState(() {
           _loadingLocation = false;
           _locationError = 'Location permission denied — you can still submit without it.';
@@ -83,11 +84,13 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
       );
+      if (!mounted) return;
       setState(() {
         _position = position;
         _loadingLocation = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loadingLocation = false;
         _locationError = 'Could not get your location right now.';
@@ -97,15 +100,19 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
 
   Future<void> _pickPhoto() async {
     final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (file != null) {
-      setState(() => _evidence.add(PickedEvidence(type: 'photo', file: File(file.path), name: file.name)));
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (mounted) {
+      setState(() => _evidence.add(PickedEvidence(type: 'photo', bytes: bytes, name: file.name)));
     }
   }
 
   Future<void> _pickVideo() async {
     final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
-    if (file != null) {
-      setState(() => _evidence.add(PickedEvidence(type: 'video', file: File(file.path), name: file.name)));
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (mounted) {
+      setState(() => _evidence.add(PickedEvidence(type: 'video', bytes: bytes, name: file.name)));
     }
   }
 
@@ -140,6 +147,7 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
         MaterialPageRoute(builder: (_) => ReportDetailScreen(reportId: newReportId)),
       );
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _submitting = false;
         _submitError = 'Could not submit report: $e';

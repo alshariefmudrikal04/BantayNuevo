@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -29,8 +29,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phoneController = TextEditingController();
   final _purokController = TextEditingController();
   final _passwordController = TextEditingController();
-  File? _idPhoto;
-  File? _facePhoto;
+  Uint8List? _idPhotoBytes;
+  String? _idPhotoName;
+  Uint8List? _facePhotoBytes;
+  String? _facePhotoName;
   bool _loading = false;
   String? _error;
 
@@ -49,7 +51,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     // their ID saved, and re-photographing a physical card by hand tends
     // to come out worse than a document scan they already have.
     final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (file != null) setState(() => _idPhoto = File(file.path));
+    if (file == null) return;
+    // Bytes, not a dart:io File+path — see CloudinaryUploader's doc
+    // comment for why a File-based approach breaks on Flutter Web.
+    // XFile.readAsBytes() works identically on every platform.
+    final bytes = await file.readAsBytes();
+    if (mounted) setState(() {
+      _idPhotoBytes = bytes;
+      _idPhotoName = file.name;
+    });
   }
 
   Future<void> _captureFace() async {
@@ -60,11 +70,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       preferredCameraDevice: CameraDevice.front,
       imageQuality: 85,
     );
-    if (file != null) setState(() => _facePhoto = File(file.path));
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (mounted) setState(() {
+      _facePhotoBytes = bytes;
+      _facePhotoName = file.name;
+    });
   }
 
   Future<void> _submit() async {
-    if (_idPhoto == null || _facePhoto == null) {
+    final idBytes = _idPhotoBytes;
+    final faceBytes = _facePhotoBytes;
+    if (idBytes == null || faceBytes == null) {
       setState(() => _error = 'Both your ID photo and a face photo are required.');
       return;
     }
@@ -79,8 +96,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phone: _phoneController.text.trim(),
         purok: _purokController.text.trim(),
         password: _passwordController.text,
-        idPhoto: _idPhoto!,
-        facePhoto: _facePhoto!,
+        idPhotoBytes: idBytes,
+        idPhotoFilename: _idPhotoName ?? 'id_photo.jpg',
+        facePhotoBytes: faceBytes,
+        facePhotoFilename: _facePhotoName ?? 'face_photo.jpg',
       );
       // AuthGate (core/router/app_router.dart) already picked up the new
       // signed-in user in the background — but RegisterScreen was pushed
@@ -131,14 +150,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               _PhotoPicker(
                 label: 'Valid ID',
                 subtitle: 'A photo or scan of any government or barangay-issued ID',
-                file: _idPhoto,
+                bytes: _idPhotoBytes,
                 onTap: _captureId,
               ),
               const SizedBox(height: 10),
               _PhotoPicker(
                 label: 'Face photo',
                 subtitle: 'A live selfie, taken now, for the admin to match against your ID',
-                file: _facePhoto,
+                bytes: _facePhotoBytes,
                 onTap: _captureFace,
               ),
               if (_error != null) ...[
@@ -159,11 +178,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 }
 
 class _PhotoPicker extends StatelessWidget {
-  const _PhotoPicker({required this.label, required this.subtitle, required this.file, required this.onTap});
+  const _PhotoPicker({required this.label, required this.subtitle, required this.bytes, required this.onTap});
 
   final String label;
   final String subtitle;
-  final File? file;
+  final Uint8List? bytes;
   final VoidCallback onTap;
 
   @override
@@ -176,14 +195,18 @@ class _PhotoPicker extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.panel,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: file != null ? AppColors.teal : AppColors.line),
+          border: Border.all(color: bytes != null ? AppColors.teal : AppColors.line),
         ),
         child: Row(
           children: [
-            if (file != null)
+            if (bytes != null)
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.file(file!, width: 46, height: 46, fit: BoxFit.cover),
+                // Image.memory, not Image.file — a dart:io File-based
+                // preview silently fails on Flutter Web (no real
+                // filesystem there); raw bytes render identically on
+                // every platform.
+                child: Image.memory(bytes!, width: 46, height: 46, fit: BoxFit.cover),
               )
             else
               Container(
@@ -198,7 +221,7 @@ class _PhotoPicker extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(label, style: AppTypography.body(fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text(file != null ? 'Selected — tap to retake' : subtitle, style: AppTypography.bodySoft(fontSize: 10.5)),
+                  Text(bytes != null ? 'Selected — tap to retake' : subtitle, style: AppTypography.bodySoft(fontSize: 10.5)),
                 ],
               ),
             ),

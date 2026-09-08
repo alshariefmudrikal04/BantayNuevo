@@ -91,6 +91,16 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // pin_security/{uid} — the resident's account-level PIN (hash+salt)
+    // and "require PIN on open" toggle (see PinSecurityRepository), kept
+    // out of the broadly-writable users/{uid} doc on purpose. Unlike most
+    // rules in this file, this one is NOT "any authenticated user" — it's
+    // scoped strictly to the account owner, since this literally guards
+    // that account's own lock screen.
+    match /pin_security/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
     // Everything else — unchanged in behavior from before this fix, just
     // now listed explicitly instead of relying on one catch-all wildcard.
     match /users/{uid} {

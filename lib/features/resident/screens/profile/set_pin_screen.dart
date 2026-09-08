@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/utils/pin_hash.dart';
 import '../../../../core/widgets/pin_keypad.dart';
+import '../../data/pin_security_repository.dart';
 
 /// Pushed from security_screen.dart the first time someone turns on
 /// "Require PIN on open" (or taps "Change PIN" afterward). Returns `true`
@@ -19,7 +19,7 @@ class SetPinScreen extends StatefulWidget {
 }
 
 class _SetPinScreenState extends State<SetPinScreen> {
-  static const _storage = FlutterSecureStorage();
+  final _pinSecurityRepository = PinSecurityRepository();
   static const _pinLength = 4;
 
   String? _firstEntry;
@@ -56,8 +56,7 @@ class _SetPinScreenState extends State<SetPinScreen> {
     if (_entered == _firstEntry) {
       final salt = generatePinSalt();
       final hash = hashPin(_entered, salt);
-      await _storage.write(key: 'security_pin_salt', value: salt);
-      await _storage.write(key: 'security_pin_hash', value: hash);
+      await _pinSecurityRepository.setPin(hash, salt);
       if (mounted) Navigator.of(context).pop(true);
     } else {
       setState(() {

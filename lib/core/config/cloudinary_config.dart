@@ -15,5 +15,14 @@ class CloudinaryConfig {
   static const cloudName = 'gcbcw5nf';
   static const uploadPreset = 'bantay_nuevo_evidence';
 
-  static Uri get uploadUrl => Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/upload');
+  // /auto/upload — NOT plain /upload. Cloudinary's base /upload endpoint
+  // (no resource-type segment) defaults to resource_type=image, so
+  // non-image files silently fail there — this bit alarm-sound .mp3
+  // uploads specifically, since every earlier evidence upload happened
+  // to be a photo. /auto/upload makes Cloudinary detect the real file
+  // type itself, working correctly for images, video, audio, and
+  // documents alike — every current caller (report evidence,
+  // ID/face photos, alarm sounds) shares this one config, so fixing it
+  // here fixes all of them at once.
+  static Uri get uploadUrl => Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/auto/upload');
 }

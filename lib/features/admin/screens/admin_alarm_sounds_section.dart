@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -35,13 +33,19 @@ class _AdminAlarmSoundsSectionState extends State<AdminAlarmSoundsSection> {
   }
 
   Future<void> _pick(EmergencyType type) async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.audio, withData: false);
-    final path = result?.files.single.path;
-    if (path == null) return;
+    // withData: true — this is what actually makes this work on Flutter
+    // Web: file_picker never gives back a usable real filesystem path in
+    // a browser (PlatformFile.path is null there), only raw bytes. Asking
+    // for bytes up front works identically on native platforms too, so
+    // there's no platform-specific branching needed here at all.
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true);
+    final picked = result?.files.single;
+    final bytes = picked?.bytes;
+    if (picked == null || bytes == null) return;
 
     setState(() => _busyType = type);
     try {
-      await _repository.uploadAlarmSound(type.value, File(path));
+      await _repository.uploadAlarmSound(type.value, bytes, picked.name);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));

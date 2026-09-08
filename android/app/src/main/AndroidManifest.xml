@@ -25,6 +25,7 @@
 
     <!-- Needed by: local_auth (Prompt 7 security screen — biometric unlock) -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Needed by: url_launcher (offline SOS sms: link in sos_screen.dart,
          hotline tel: dialing in resources_screen.dart, opening evidence

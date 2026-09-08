@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import '../theme/app_spacing.dart';
 import '../utils/pin_hash.dart';
 import '../../features/auth/data/auth_repository.dart';
+import '../../features/resident/data/pin_security_repository.dart';
 import 'pin_keypad.dart';
 
 /// Full-screen, opaque lock shown by AppLockGate whenever the resident has
@@ -23,13 +23,15 @@ class PinLockScreen extends StatefulWidget {
 }
 
 class _PinLockScreenState extends State<PinLockScreen> {
-  static const _storage = FlutterSecureStorage();
+  final _pinSecurityRepository = PinSecurityRepository();
   static const _pinLength = 4;
   final _localAuth = LocalAuthentication();
 
   String _entered = '';
   String? _error;
   bool _hasPin = false;
+  String? _hash;
+  String? _salt;
   bool _checkingPin = true;
   bool _biometricAttempted = false;
 
@@ -45,10 +47,16 @@ class _PinLockScreenState extends State<PinLockScreen> {
   }
 
   Future<void> _checkPinExists() async {
-    final hash = await _storage.read(key: 'security_pin_hash');
+    // Checks this device's local cache first, and if this account was
+    // never unlocked here before, pulls the PIN down from Firestore
+    // instead (see PinSecurityRepository) — this is what makes a PIN set
+    // on one device actually apply the first time you log in on another.
+    final settings = await _pinSecurityRepository.load();
     if (!mounted) return;
     setState(() {
-      _hasPin = hash != null;
+      _hasPin = settings.hasPin;
+      _hash = settings.hash;
+      _salt = settings.salt;
       _checkingPin = false;
     });
   }
@@ -85,8 +93,8 @@ class _PinLockScreenState extends State<PinLockScreen> {
   }
 
   Future<void> _submitPin() async {
-    final salt = await _storage.read(key: 'security_pin_salt');
-    final storedHash = await _storage.read(key: 'security_pin_hash');
+    final salt = _salt;
+    final storedHash = _hash;
     if (salt == null || storedHash == null) {
       // Shouldn't happen if _hasPin gated the UI correctly, but fail open
       // rather than trap someone behind a PIN pad with nothing to check
@@ -112,6 +120,12 @@ class _PinLockScreenState extends State<PinLockScreen> {
   /// already has physical access to the unlocked device. The alternative,
   /// no escape hatch at all, risks permanently locking a resident out of
   /// reporting or SOS, which is worse.
+  ///
+  /// Clears the PIN via PinSecurityRepository — i.e. account-wide, not
+  /// just this device — since the PIN is now an account-level setting
+  /// (see that repository's doc comment). Leaving it set on the account
+  /// while wiping only this device's cache would just mean it comes back
+  /// the next time this device (or any other) syncs it from Firestore.
   Future<void> _forgotPin() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -131,11 +145,7 @@ class _PinLockScreenState extends State<PinLockScreen> {
       ),
     );
     if (confirmed != true) return;
-    await _storage.delete(key: 'security_pin_on_open');
-    await _storage.delete(key: 'security_biometric');
-    await _storage.delete(key: 'security_auto_lock');
-    await _storage.delete(key: 'security_pin_hash');
-    await _storage.delete(key: 'security_pin_salt');
+    await _pinSecurityRepository.clearPin();
     await AuthRepository().logout();
     widget.onUnlocked();
   }
