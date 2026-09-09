@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
@@ -46,11 +45,28 @@ class LiveMap extends StatelessWidget {
         ? ll.LatLng(otherLat!, otherLng!)
         : null;
 
+    // Genuinely happens, not just a rare edge case: whenever a responder's
+    // own GPS hasn't resolved yet, tanod/police alert-detail screens fall
+    // back to using the ALERT's own coordinates as their placeholder "self"
+    // position (see e.g. PoliceAlertDetailScreen's
+    // `selfLat: _myPosition?.latitude ?? alert.lat ?? 0`) — meaning self
+    // and other can briefly be the exact same point. It's also just what a
+    // responder having genuinely arrived looks like. Either way,
+    // LatLngBounds.fromPoints on two identical points is a zero-area box,
+    // and flutter_map's CameraFit.bounds() does a zoom calculation on that
+    // box involving a division that produces NaN internally, crashing with
+    // "Unsupported operation: NaN" — not a null/missing-data problem, a
+    // math-on-a-degenerate-box problem. Guard by only fitting bounds when
+    // the two points are meaningfully apart; a same-point (or no-other)
+    // case just centers on self at the normal initial zoom instead.
+    const samePointThreshold = 0.00005; // ~5 meters at this latitude
+    final samePoint = other != null &&
+        (self.latitude - other.latitude).abs() < samePointThreshold &&
+        (self.longitude - other.longitude).abs() < samePointThreshold;
+
     // FIX:
     // LatLngBounds comes from flutter_map, so don't use ll.LatLngBounds.
-    final bounds = other != null
-        ? LatLngBounds.fromPoints([self, other])
-        : null;
+    final bounds = (other != null && !samePoint) ? LatLngBounds.fromPoints([self, other]) : null;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(11),
