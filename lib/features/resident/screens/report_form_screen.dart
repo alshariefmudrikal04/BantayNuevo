@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../../models/user_model.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_button.dart';
-import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/section_title.dart';
+import '../../../core/theme/lux_theme.dart';
 import 'sos_screen.dart';
 import 'report_detail_screen.dart';
 import '../data/report_repository.dart';
@@ -116,6 +112,33 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     }
   }
 
+  Future<void> _pickDocument() async {
+    // withData: true — bytes work everywhere (web + native), see
+    // CloudinaryUploader's doc comment for why a path-based pick breaks
+    // on Flutter Web.
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'doc', 'docx'],
+      withData: true,
+    );
+    final picked = result?.files.single;
+    final bytes = picked?.bytes;
+    if (picked == null || bytes == null) return;
+    if (mounted) {
+      setState(() => _evidence.add(PickedEvidence(type: 'document', bytes: bytes, name: picked.name)));
+    }
+  }
+
+  Future<void> _pickAudio() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true);
+    final picked = result?.files.single;
+    final bytes = picked?.bytes;
+    if (picked == null || bytes == null) return;
+    if (mounted) {
+      setState(() => _evidence.add(PickedEvidence(type: 'audio', bytes: bytes, name: picked.name)));
+    }
+  }
+
   Future<void> _submit() async {
     if (_descriptionController.text.trim().isEmpty) {
       setState(() => _submitError = 'Please describe what happened.');
@@ -194,32 +217,59 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Report an incident')),
+      backgroundColor: LuxColors.bg,
+      appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
+        title: Text('REPORT AN INCIDENT', style: LuxType.eyebrow(fontSize: 11, color: LuxColors.ink)),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.lg),
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionTitle('Incident type', topPadding: 0),
-              DropdownButtonFormField<String>(
-                value: _type,
-                items: _incidentTypes
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t, style: AppTypography.body(fontSize: 12.5))))
-                    .toList(),
-                onChanged: (v) => setState(() => _type = v ?? _type),
+              Text('INCIDENT TYPE', style: LuxType.eyebrow(fontSize: 10.5)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: LuxColors.divider)),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButtonFormField<String>(
+                    value: _type,
+                    decoration: const InputDecoration(border: InputBorder.none),
+                    items: _incidentTypes
+                        .map((t) => DropdownMenuItem(value: t, child: Text(t, style: LuxType.body(fontSize: 13))))
+                        .toList(),
+                    onChanged: (v) => setState(() => _type = v ?? _type),
+                  ),
+                ),
               ),
+              const SizedBox(height: 24),
 
-              const SectionTitle('Description'),
-              TextField(
-                controller: _descriptionController,
-                maxLines: 4,
-                decoration: const InputDecoration(hintText: 'Describe what happened...'),
+              Text('DESCRIPTION', style: LuxType.eyebrow(fontSize: 10.5)),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: LuxColors.divider)),
+                child: TextField(
+                  controller: _descriptionController,
+                  maxLines: 4,
+                  style: LuxType.body(fontSize: 13),
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.all(14),
+                    hintText: 'Describe what happened...',
+                    hintStyle: LuxType.body(fontSize: 13, color: LuxColors.inkSoft),
+                  ),
+                ),
               ),
+              const SizedBox(height: 24),
 
-              const SectionTitle('Location'),
-              AppCard(
+              Text('LOCATION', style: LuxType.eyebrow(fontSize: 10.5)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: LuxColors.divider)),
                 child: Row(
                   children: [
                     if (_loadingLocation)
@@ -228,47 +278,64 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                       Icon(
                         _position != null ? Icons.location_on : Icons.location_off,
                         size: 16,
-                        color: _position != null ? AppColors.teal : AppColors.amber,
+                        color: _position != null ? LuxColors.red : LuxColors.amber,
                       ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(_locationDisplay, style: AppTypography.mono(fontSize: 10.5)),
+                      child: Text(_locationDisplay, style: LuxType.body(fontSize: 11, color: LuxColors.inkSoft)),
                     ),
                     if (!_loadingLocation && _position == null)
-                      TextButton(onPressed: _captureLocation, child: const Text('Retry')),
+                      TextButton(onPressed: _captureLocation, child: Text('RETRY', style: LuxType.eyebrow(fontSize: 10, color: LuxColors.red))),
                   ],
                 ),
               ),
+              const SizedBox(height: 24),
 
-              const SectionTitle('Evidence'),
+              Text('EVIDENCE', style: LuxType.eyebrow(fontSize: 10.5)),
+              const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: AppButton(label: '＋ Photo', variant: AppButtonVariant.outline, onPressed: _pickPhoto)),
+                  Expanded(child: _EvidenceButton(label: 'Photo', icon: Icons.add_a_photo_outlined, onTap: _pickPhoto)),
                   const SizedBox(width: 8),
-                  Expanded(child: AppButton(label: '＋ Video', variant: AppButtonVariant.outline, onPressed: _pickVideo)),
+                  Expanded(child: _EvidenceButton(label: 'Video', icon: Icons.videocam_outlined, onTap: _pickVideo)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: _EvidenceButton(label: 'Document', icon: Icons.description_outlined, onTap: _pickDocument)),
+                  const SizedBox(width: 8),
+                  Expanded(child: _EvidenceButton(label: 'Audio', icon: Icons.mic_none_outlined, onTap: _pickAudio)),
                 ],
               ),
               if (_evidence.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                AppCard(
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: LuxColors.divider)),
                   child: Column(
                     children: [
                       for (int i = 0; i < _evidence.length; i++)
                         Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                           child: Row(
                             children: [
                               Icon(
-                                _evidence[i].type == 'photo' ? Icons.image_outlined : Icons.videocam_outlined,
+                                switch (_evidence[i].type) {
+                                  'photo' => Icons.image_outlined,
+                                  'video' => Icons.videocam_outlined,
+                                  'audio' => Icons.mic_none_outlined,
+                                  _ => Icons.description_outlined,
+                                },
                                 size: 16,
-                                color: AppColors.inkSoft,
+                                color: LuxColors.red,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: Text(_evidence[i].name, style: AppTypography.body(fontSize: 11.5), overflow: TextOverflow.ellipsis),
+                                child: Text(_evidence[i].name, style: LuxType.body(fontSize: 11.5), overflow: TextOverflow.ellipsis),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.close, size: 16),
+                                icon: const Icon(Icons.close, size: 16, color: LuxColors.inkSoft),
                                 onPressed: () => setState(() => _evidence.removeAt(i)),
                               ),
                             ],
@@ -281,16 +348,28 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
 
               if (_submitError != null) ...[
                 const SizedBox(height: 10),
-                Text(_submitError!, style: AppTypography.mono(fontSize: 11, color: AppColors.urgent)),
+                Text(_submitError!, style: LuxType.eyebrow(fontSize: 10.5, color: LuxColors.red)),
               ],
 
-              const SizedBox(height: 20),
-              AppButton(
-                label: _submitting ? 'Submitting...' : 'Submit report',
-                onPressed: _submitting ? null : _submit,
+              const SizedBox(height: 24),
+              Material(
+                color: LuxColors.red,
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: _submitting ? null : _submit,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    alignment: Alignment.center,
+                    child: Text(
+                      _submitting ? 'SUBMITTING...' : 'SUBMIT REPORT',
+                      style: LuxType.eyebrow(fontSize: 12, color: Colors.white, letterSpacing: 0.8),
+                    ),
+                  ),
+                ),
               ),
 
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               Center(
                 child: GestureDetector(
                   onTap: () => Navigator.of(context).push(
@@ -299,16 +378,50 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
                   child: Text.rich(
                     TextSpan(
                       children: [
-                        TextSpan(text: 'Not urgent right now? ', style: AppTypography.mono(fontSize: 10.5)),
+                        TextSpan(text: 'Not urgent right now? ', style: LuxType.body(fontSize: 11, color: LuxColors.inkSoft)),
                         TextSpan(
                           text: 'This is happening now →',
-                          style: AppTypography.mono(fontSize: 10.5, color: AppColors.urgent),
+                          style: LuxType.eyebrow(fontSize: 10.5, color: LuxColors.red),
                         ),
                       ],
                     ),
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One evidence-type button — photo/video/document/audio all use the same
+/// shape, just a different icon/label.
+class _EvidenceButton extends StatelessWidget {
+  const _EvidenceButton({required this.label, required this.icon, required this.onTap});
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: LuxColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: LuxColors.divider)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: LuxColors.red),
+              const SizedBox(height: 6),
+              Text(label.toUpperCase(), style: LuxType.eyebrow(fontSize: 9.5, letterSpacing: 0.4)),
             ],
           ),
         ),

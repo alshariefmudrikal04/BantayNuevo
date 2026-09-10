@@ -1,6 +1,8 @@
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/sos_alert_model.dart';
 import '../../../models/report_model.dart';
+import '../../../core/services/cloudinary_uploader.dart';
 import '../../resident/data/notification_repository.dart';
 
 /// Police-side data access. Unlike TanodSosRepository/TanodReportRepository
@@ -134,5 +136,40 @@ class PoliceRepository {
         {'who': who, 'when': Timestamp.now()},
       ]),
     });
+  }
+
+  /// Mirrors TanodReportRepository.addCaseUpdate — see that method's doc
+  /// comment for the full reasoning (client-side timestamp, upload-then-
+  /// append pattern, etc.). Kept as a genuine duplicate rather than a
+  /// shared base class, consistent with how this whole police feature
+  /// mirrors tanod's rather than sharing code — see PoliceRepository's
+  /// own top-of-file doc comment.
+  Future<void> addCaseUpdate({
+    required String reportId,
+    required String authorName,
+    required String authorRole,
+    required String note,
+    List<({String type, Uint8List bytes, String name})> evidence = const [],
+    String? residentId,
+  }) async {
+    final uploaded = <EvidenceFile>[];
+    for (final item in evidence) {
+      final url = await CloudinaryUploader.uploadBytes(item.bytes, filename: item.name);
+      uploaded.add(EvidenceFile(type: item.type, url: url, name: item.name, uploadedAt: DateTime.now()));
+    }
+
+    final update = CaseUpdate(authorName: authorName, authorRole: authorRole, note: note, evidenceFiles: uploaded, when: DateTime.now());
+
+    await _reports.doc(reportId).update({
+      'caseUpdates': FieldValue.arrayUnion([update.toMap()]),
+    });
+
+    if (residentId != null) {
+      await _notificationRepository.create(
+        recipientId: residentId,
+        message: '$authorName ($authorRole) added an update to your report.',
+        relatedReportId: reportId,
+      );
+    }
   }
 }

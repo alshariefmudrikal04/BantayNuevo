@@ -57,6 +57,48 @@ class AccessLogEntry {
       );
 }
 
+/// One entry in a report's progress/case log — a tanod or police responder
+/// documenting a visit, a status change, or (once resolved) what was
+/// actually agreed/settled. Separate from AccessLogEntry (which just
+/// records "someone opened this") and from the resident's own
+/// evidenceFiles (submitted once, at filing) — this is the ongoing,
+/// responder-authored narrative of what happened AFTER the report came
+/// in, which can include its own attached evidence (e.g. a photo taken
+/// during a site visit, or a scanned settlement/agreement document).
+class CaseUpdate {
+  const CaseUpdate({
+    required this.authorName,
+    required this.authorRole,
+    required this.note,
+    this.evidenceFiles = const [],
+    this.when,
+  });
+
+  final String authorName;
+  final String authorRole; // "Tanod" | "Police" | "Admin"
+  final String note;
+  final List<EvidenceFile> evidenceFiles;
+  final DateTime? when;
+
+  factory CaseUpdate.fromMap(Map<String, dynamic> map) => CaseUpdate(
+        authorName: map['authorName'] as String? ?? 'Unknown',
+        authorRole: map['authorRole'] as String? ?? '',
+        note: map['note'] as String? ?? '',
+        evidenceFiles: ((map['evidenceFiles'] as List?) ?? [])
+            .map((e) => EvidenceFile.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+        when: (map['when'] as Timestamp?)?.toDate(),
+      );
+
+  Map<String, dynamic> toMap() => {
+        'authorName': authorName,
+        'authorRole': authorRole,
+        'note': note,
+        'evidenceFiles': evidenceFiles.map((e) => e.toMap()).toList(),
+        'when': Timestamp.now(), // set client-side, not serverTimestamp — see TanodReportRepository.addCaseUpdate's doc comment on why
+      };
+}
+
 /// Matches the `reports/{reportId}` schema in AGENTS.md §5.
 class ReportModel {
   const ReportModel({
@@ -70,6 +112,7 @@ class ReportModel {
     this.lng,
     this.evidenceFiles = const [],
     this.accessLog = const [],
+    this.caseUpdates = const [],
     this.assignedTanodId,
     this.createdAt,
   });
@@ -84,6 +127,7 @@ class ReportModel {
   final double? lng;
   final List<EvidenceFile> evidenceFiles;
   final List<AccessLogEntry> accessLog;
+  final List<CaseUpdate> caseUpdates;
   final String? assignedTanodId;
   final DateTime? createdAt;
 
@@ -103,6 +147,9 @@ class ReportModel {
           .toList(),
       accessLog: ((data['accessLog'] as List?) ?? [])
           .map((e) => AccessLogEntry.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      caseUpdates: ((data['caseUpdates'] as List?) ?? [])
+          .map((e) => CaseUpdate.fromMap(Map<String, dynamic>.from(e as Map)))
           .toList(),
       assignedTanodId: data['assignedTanodId'] as String?,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),

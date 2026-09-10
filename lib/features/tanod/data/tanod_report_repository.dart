@@ -1,5 +1,7 @@
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/report_model.dart';
+import '../../../core/services/cloudinary_uploader.dart';
 import '../../resident/data/notification_repository.dart';
 
 /// Tanod-side report handling — sees ALL residents' reports (unlike the
@@ -91,5 +93,47 @@ class TanodReportRepository {
         {'who': who, 'when': Timestamp.now()},
       ]),
     });
+  }
+
+  /// Adds one entry to the report's case log — a tanod documenting a site
+  /// visit, a general update, or (once the report is being marked
+  /// resolved) what was actually agreed/settled. Any attached files are
+  /// uploaded first (same Cloudinary flow as everything else in this
+  /// app), then the whole entry — note text + resulting evidence URLs —
+  /// is appended in one array write, same append-only pattern as
+  /// appendAccessLog above: nothing here ever overwrites a past entry,
+  /// so the case log stays a genuine chronological record.
+  ///
+  /// [when] is set client-side (Timestamp.now()) rather than
+  /// FieldValue.serverTimestamp() — Firestore doesn't support server
+  /// timestamps inside array elements written via arrayUnion, only on
+  /// top-level/nested map fields set directly.
+  Future<void> addCaseUpdate({
+    required String reportId,
+    required String authorName,
+    required String authorRole,
+    required String note,
+    List<({String type, Uint8List bytes, String name})> evidence = const [],
+    String? residentId,
+  }) async {
+    final uploaded = <EvidenceFile>[];
+    for (final item in evidence) {
+      final url = await CloudinaryUploader.uploadBytes(item.bytes, filename: item.name);
+      uploaded.add(EvidenceFile(type: item.type, url: url, name: item.name, uploadedAt: DateTime.now()));
+    }
+
+    final update = CaseUpdate(authorName: authorName, authorRole: authorRole, note: note, evidenceFiles: uploaded, when: DateTime.now());
+
+    await _reports.doc(reportId).update({
+      'caseUpdates': FieldValue.arrayUnion([update.toMap()]),
+    });
+
+    if (residentId != null) {
+      await _notificationRepository.create(
+        recipientId: residentId,
+        message: '$authorName ($authorRole) added an update to your report.',
+        relatedReportId: reportId,
+      );
+    }
   }
 }

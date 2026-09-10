@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:typed_data';
 import '../../../models/user_model.dart';
 import '../../../models/report_model.dart';
 import '../../../core/theme/app_colors.dart';
@@ -102,6 +105,32 @@ class _PoliceReportReviewScreenState extends State<PoliceReportReviewScreen> {
     }
   }
 
+  Future<void> _openAddUpdateSheet(ReportModel report) async {
+    final result = await showModalBottomSheet<_CaseUpdateDraft>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AddCaseUpdateSheet(isResolved: report.status == ReportStatus.resolved),
+    );
+    if (result == null || result.note.trim().isEmpty) return;
+
+    setState(() => _updatingStatus = true);
+    try {
+      await _repository.addCaseUpdate(
+        reportId: widget.reportId,
+        authorName: widget.user.name,
+        authorRole: 'Police',
+        note: result.note.trim(),
+        evidence: result.evidence,
+        residentId: report.residentId,
+      );
+    } catch (e) {
+      _showSnack('Could not add update: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _updatingStatus = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -181,6 +210,59 @@ class _PoliceReportReviewScreenState extends State<PoliceReportReviewScreen> {
                 ],
               ),
 
+              const SectionTitle('Case log'),
+              Text(
+                'Document site visits, progress updates, and — once resolved — what was actually agreed.',
+                style: AppTypography.bodySoft(fontSize: 11),
+              ),
+              const SizedBox(height: 8),
+              if (report.caseUpdates.isEmpty)
+                Text('No updates logged yet.', style: AppTypography.bodySoft(fontSize: 12))
+              else
+                for (final update in report.caseUpdates.reversed)
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${update.authorName} · ${update.authorRole}',
+                                style: AppTypography.body(fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            Text(_formatDate(update.when), style: AppTypography.mono(fontSize: 9.5, color: AppColors.inkSoft)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(update.note, style: AppTypography.body(fontSize: 12.5)),
+                        if (update.evidenceFiles.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          for (final file in update.evidenceFiles)
+                            InkWell(
+                              onTap: () => _openFile(context, file),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 3),
+                                child: Row(
+                                  children: [
+                                    Icon(_iconFor(file.type), size: 14, color: AppColors.teal),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(file.name, style: AppTypography.mono(fontSize: 10.5, color: AppColors.teal), overflow: TextOverflow.ellipsis),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+              const SizedBox(height: 4),
+              AppButton(label: '＋ Add update', variant: AppButtonVariant.outline, onPressed: () => _openAddUpdateSheet(report)),
+              const SizedBox(height: 8),
+
               const SectionTitle('Evidence'),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -257,6 +339,144 @@ class _PoliceReportReviewScreenState extends State<PoliceReportReviewScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// What _AddCaseUpdateSheet hands back on submit.
+class _CaseUpdateDraft {
+  const _CaseUpdateDraft({required this.note, required this.evidence});
+  final String note;
+  final List<({String type, Uint8List bytes, String name})> evidence;
+}
+
+/// Mirrors the tanod version of this same composer — see
+/// tanod_report_review_screen.dart's copy for the full doc comment.
+class _AddCaseUpdateSheet extends StatefulWidget {
+  const _AddCaseUpdateSheet({required this.isResolved});
+
+  final bool isResolved;
+
+  @override
+  State<_AddCaseUpdateSheet> createState() => _AddCaseUpdateSheetState();
+}
+
+class _AddCaseUpdateSheetState extends State<_AddCaseUpdateSheet> {
+  final _noteController = TextEditingController();
+  final List<({String type, Uint8List bytes, String name})> _evidence = [];
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickPhoto() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    if (mounted) setState(() => _evidence.add((type: 'photo', bytes: bytes, name: file.name)));
+  }
+
+  Future<void> _pickDocument() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'doc', 'docx'], withData: true);
+    final picked = result?.files.single;
+    final bytes = picked?.bytes;
+    if (picked == null || bytes == null) return;
+    if (mounted) setState(() => _evidence.add((type: 'document', bytes: bytes, name: picked.name)));
+  }
+
+  Future<void> _pickAudio() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true);
+    final picked = result?.files.single;
+    final bytes = picked?.bytes;
+    if (picked == null || bytes == null) return;
+    if (mounted) setState(() => _evidence.add((type: 'audio', bytes: bytes, name: picked.name)));
+  }
+
+  void _submit() {
+    if (_noteController.text.trim().isEmpty) return;
+    setState(() => _submitting = true);
+    Navigator.of(context).pop(_CaseUpdateDraft(note: _noteController.text, evidence: _evidence));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.bg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.isResolved ? 'Document the resolution' : 'Add a case update',
+                style: AppTypography.display(fontSize: 16),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.isResolved
+                    ? 'What was agreed? How was this settled? Attach any signed agreement or supporting evidence.'
+                    : 'What happened? e.g. site visit notes, who you spoke with, next steps.',
+                style: AppTypography.bodySoft(fontSize: 11.5),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _noteController,
+                maxLines: 4,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: widget.isResolved ? 'e.g. Both parties agreed to...' : 'e.g. Visited the location at 3pm, spoke with...',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: AppButton(label: '＋ Photo', variant: AppButtonVariant.outline, onPressed: _pickPhoto)),
+                  const SizedBox(width: 8),
+                  Expanded(child: AppButton(label: '＋ Document', variant: AppButtonVariant.outline, onPressed: _pickDocument)),
+                  const SizedBox(width: 8),
+                  Expanded(child: AppButton(label: '＋ Audio', variant: AppButtonVariant.outline, onPressed: _pickAudio)),
+                ],
+              ),
+              if (_evidence.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                for (int i = 0; i < _evidence.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Icon(
+                          switch (_evidence[i].type) {
+                            'photo' => Icons.image_outlined,
+                            'audio' => Icons.mic_none_outlined,
+                            _ => Icons.description_outlined,
+                          },
+                          size: 16,
+                          color: AppColors.inkSoft,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(_evidence[i].name, style: AppTypography.body(fontSize: 11.5), overflow: TextOverflow.ellipsis)),
+                        IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _evidence.removeAt(i))),
+                      ],
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 16),
+              AppButton(label: _submitting ? 'Adding...' : 'Add update', onPressed: _submitting ? null : _submit),
+              const SizedBox(height: 8),
+              AppButton(label: 'Cancel', variant: AppButtonVariant.ghost, onPressed: () => Navigator.of(context).pop()),
+            ],
+          ),
+        ),
       ),
     );
   }
