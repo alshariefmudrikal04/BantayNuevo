@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../models/report_model.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/section_title.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../data/report_repository.dart';
 import '../../../core/widgets/sensitive_content_gate.dart';
 import '../../../core/widgets/photo_viewer_screen.dart';
@@ -53,7 +50,7 @@ class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
   Future<void> _openFile(BuildContext context, EvidenceFile file) async {
     if (file.url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("This file doesn't have a valid link."), backgroundColor: AppColors.urgent),
+        const SnackBar(content: Text("This file doesn't have a valid link."), backgroundColor: LuxColors.red),
       );
       return;
     }
@@ -68,7 +65,7 @@ class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open this file.'), backgroundColor: AppColors.urgent),
+        const SnackBar(content: Text('Could not open this file.'), backgroundColor: LuxColors.red),
       );
     }
   }
@@ -77,105 +74,130 @@ class _EvidenceVaultScreenState extends State<EvidenceVaultScreen> {
   Widget build(BuildContext context) {
     return SensitiveContentGate(
       child: Scaffold(
-        backgroundColor: AppColors.bg,
-        appBar: AppBar(title: const Text('Evidence vault')),
-      body: StreamBuilder<ReportModel>(
-        stream: _reportStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: Text('Report not found.'));
-          }
-          final report = snapshot.data!;
+        backgroundColor: LuxColors.bg,
+        appBar: AppBar(
+          backgroundColor: LuxColors.bg,
+          elevation: 0,
+          title: Text('EVIDENCE VAULT', style: LuxType.eyebrow(fontSize: 11, color: LuxColors.ink)),
+        ),
+        body: StreamBuilder<ReportModel>(
+          stream: _reportStream,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (!snapshot.hasData) {
+              return Center(child: Text('Report not found.', style: LuxType.body(fontSize: 13)));
+            }
+            final report = snapshot.data!;
 
-          return ListView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.lockLight,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFD9CFEC)),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.lock_outline, size: 16, color: AppColors.lock),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "Files are encrypted and locked to this case. You can view them, but they can't be "
-                        "downloaded or deleted from the app — this preserves the evidence chain for tanod and police.",
-                        style: AppTypography.bodySoft(fontSize: 11),
+            return ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: LuxColors.black, borderRadius: BorderRadius.circular(14)),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.lock_outline, size: 16, color: Colors.white),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "Files are encrypted and locked to this case. You can view them, but they can't be "
+                          "downloaded or deleted — this preserves the evidence chain for tanod and police.",
+                          style: LuxType.body(fontSize: 11, color: Colors.white70),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 20),
 
-              SectionTitle('Files — ${report.id}'),
-              if (report.evidenceFiles.isEmpty)
-                Text(
-                  'No evidence uploaded for this report yet.',
-                  style: AppTypography.bodySoft(fontSize: 12),
-                )
-              else
-                for (final file in report.evidenceFiles)
-                  InkWell(
-                    onTap: () => _openFile(context, file),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration:
-                                BoxDecoration(color: AppColors.tealLight, borderRadius: BorderRadius.circular(8)),
-                            child: Icon(_iconFor(file.type), size: 18, color: AppColors.teal),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(file.name, style: AppTypography.body(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                Text(
-                                  '${file.type} · uploaded ${_formatDate(file.uploadedAt)}',
-                                  style: AppTypography.mono(fontSize: 10),
-                                ),
-                              ],
+                Text('FILES — ${report.id}', style: LuxType.eyebrow(fontSize: 10.5)),
+                const SizedBox(height: 8),
+                if (report.evidenceFiles.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                    child: Text('No evidence uploaded for this report yet.', style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft)),
+                  )
+                else
+                  Container(
+                    decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        for (int i = 0; i < report.evidenceFiles.length; i++)
+                          InkWell(
+                            onTap: () => _openFile(context, report.evidenceFiles[i]),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: i == report.evidenceFiles.length - 1
+                                  ? null
+                                  : const BoxDecoration(border: Border(bottom: BorderSide(color: LuxColors.divider))),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 38,
+                                    height: 38,
+                                    decoration: const BoxDecoration(color: LuxColors.surfaceMuted, shape: BoxShape.circle),
+                                    child: Icon(_iconFor(report.evidenceFiles[i].type), size: 18, color: LuxColors.red),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(report.evidenceFiles[i].name, style: LuxType.heading(fontSize: 13), overflow: TextOverflow.ellipsis),
+                                        Text(
+                                          '${report.evidenceFiles[i].type} · uploaded ${_formatDate(report.evidenceFiles[i].uploadedAt)}',
+                                          style: LuxType.eyebrow(fontSize: 9, color: LuxColors.inkSoft, letterSpacing: 0.2),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.chevron_right, size: 18, color: LuxColors.inkSoft),
+                                ],
+                              ),
                             ),
                           ),
-                          const Icon(Icons.chevron_right, size: 18, color: AppColors.inkSoft),
-                        ],
-                      ),
-                    ),
-                  ),
-
-              const SectionTitle('Access log'),
-              if (report.accessLog.isEmpty)
-                Text('No one has viewed this evidence yet.', style: AppTypography.bodySoft(fontSize: 12))
-              else
-                for (final entry in report.accessLog)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(child: Text(entry.who, style: AppTypography.bodySoft(fontSize: 11))),
-                        Text(_formatDate(entry.when), style: AppTypography.mono(fontSize: 10)),
                       ],
                     ),
                   ),
-            ],
-          );
-        },
-      ),
+                const SizedBox(height: 20),
+
+                Text('ACCESS LOG', style: LuxType.eyebrow(fontSize: 10.5)),
+                const SizedBox(height: 8),
+                if (report.accessLog.isEmpty)
+                  Text('No one has viewed this evidence yet.', style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft))
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                    child: Column(
+                      children: [
+                        for (int i = 0; i < report.accessLog.length; i++)
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: i == report.accessLog.length - 1
+                                ? null
+                                : const BoxDecoration(border: Border(bottom: BorderSide(color: LuxColors.divider))),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(child: Text(report.accessLog[i].who, style: LuxType.body(fontSize: 11.5))),
+                                Text(_formatDate(report.accessLog[i].when), style: LuxType.eyebrow(fontSize: 9, color: LuxColors.inkSoft)),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

@@ -15,12 +15,20 @@ class NotificationRepository {
 
   /// Live stream of a user's notifications, newest first — works for any
   /// role, not just resident, since recipientId can be a tanod/police uid too.
+  ///
+  /// Sorted client-side rather than via Firestore's own orderBy — a
+  /// .where() + .orderBy() on different fields needs a composite index (an
+  /// extra manual step in the Firebase console that's easy to forget,
+  /// and the stream just silently fails with a permission/precondition
+  /// error until it's created). A single user's notification list is
+  /// small enough that sorting the already-fetched results in Dart avoids
+  /// that setup step entirely.
   Stream<List<NotificationModel>> streamForUser(String uid) {
-    return _notifications
-        .where('recipientId', isEqualTo: uid)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) => NotificationModel.fromFirestore(d.data(), d.id)).toList());
+    return _notifications.where('recipientId', isEqualTo: uid).snapshots().map((snap) {
+      final notifications = snap.docs.map((d) => NotificationModel.fromFirestore(d.data(), d.id)).toList();
+      notifications.sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+      return notifications;
+    });
   }
 
   Future<void> markAsRead(String notificationId) {

@@ -1,13 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_typography.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/widgets/app_card.dart';
-import '../../../../core/widgets/toggle_row.dart';
-import '../../../../core/widgets/section_title.dart';
-import '../../../../core/widgets/list_item_tile.dart';
+import '../../../../core/theme/lux_theme.dart';
 import '../../data/pin_security_repository.dart';
 import 'set_pin_screen.dart';
 
@@ -83,6 +77,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
       final created = await _promptSetPin();
       if (!created) return;
     }
+    if (!mounted) return;
     setState(() => _pinOnOpen = value);
     await _pinSecurityRepository.setPinOnOpen(value);
   }
@@ -90,73 +85,147 @@ class _SecurityScreenState extends State<SecurityScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('App lock & security')),
+      backgroundColor: LuxColors.bg,
+      appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
+        title: Text('APP LOCK & SECURITY', style: LuxType.eyebrow(fontSize: 11, color: LuxColors.ink)),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(AppSpacing.lg),
+              padding: const EdgeInsets.all(20),
               children: [
-                const SectionTitle('Reports & Evidence lock', topPadding: 0),
-                AppCard(
-                  child: Column(
+                Text('REPORTS & EVIDENCE LOCK', style: LuxType.eyebrow(fontSize: 10.5)),
+                const SizedBox(height: 8),
+                _Group(
+                  children: [
+                    _ToggleTile(
+                      label: 'Require PIN to view Reports & Evidence',
+                      description: 'Protects your report history if someone else has your phone',
+                      value: _pinOnOpen,
+                      onChanged: _onPinOnOpenChanged,
+                    ),
+                    _ToggleTile(
+                      label: 'Biometric unlock',
+                      description: _biometricAvailable ? 'Fingerprint / face unlock' : 'Not available on this device',
+                      value: _biometric,
+                      isLast: true,
+                      onChanged: _biometricAvailable
+                          ? (v) {
+                              setState(() => _biometric = v);
+                              _set('security_biometric', v);
+                            }
+                          : (_) {},
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                Text('SESSION', style: LuxType.eyebrow(fontSize: 10.5)),
+                const SizedBox(height: 8),
+                _Group(
+                  children: [
+                    _ToggleTile(
+                      label: 'Re-lock after 1 min idle',
+                      description: 'Re-checks PIN if you leave and come back',
+                      value: _autoLock,
+                      isLast: true,
+                      onChanged: (v) {
+                        setState(() => _autoLock = v);
+                        _set('security_auto_lock', v);
+                      },
+                    ),
+                  ],
+                ),
+
+                if (_hasPin) ...[
+                  const SizedBox(height: 24),
+                  Text('PIN', style: LuxType.eyebrow(fontSize: 10.5)),
+                  const SizedBox(height: 8),
+                  _Group(
                     children: [
-                      ToggleRow(
-                        label: 'Require PIN to view Reports & Evidence',
-                        description: "Protects your report history if someone else has your phone",
-                        value: _pinOnOpen,
-                        onChanged: _onPinOnOpenChanged,
-                      ),
-                      ToggleRow(
-                        label: 'Biometric unlock',
-                        description: _biometricAvailable
-                            ? 'Fingerprint / face unlock'
-                            : 'Not available on this device',
-                        value: _biometric,
-                        onChanged: _biometricAvailable
-                            ? (v) {
-                                setState(() => _biometric = v);
-                                _set('security_biometric', v);
-                              }
-                            : (_) {},
-                        isLast: true,
+                      InkWell(
+                        onTap: () => _promptSetPin(),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Change PIN', style: LuxType.heading(fontSize: 13.5)),
+                                    const SizedBox(height: 2),
+                                    Text('Set a new 4-digit PIN', style: LuxType.body(fontSize: 11, color: LuxColors.inkSoft)),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.chevron_right, size: 18, color: LuxColors.inkSoft),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                const SectionTitle('Session'),
-                AppCard(
-                  child: ToggleRow(
-                    label: 'Re-lock after 1 min idle',
-                    description: 'Re-checks PIN if you leave and come back',
-                    value: _autoLock,
-                    onChanged: (v) {
-                      setState(() => _autoLock = v);
-                      _set('security_auto_lock', v);
-                    },
-                    isLast: true,
-                  ),
-                ),
-                if (_hasPin) ...[
-                  const SectionTitle('PIN'),
-                  AppCard(
-                    child: ListItemTile(
-                      title: 'Change PIN',
-                      subtitle: 'Set a new 4-digit PIN',
-                      showChevron: true,
-                      isLast: true,
-                      onTap: () => _promptSetPin(),
-                    ),
-                  ),
                 ],
-                const SizedBox(height: 8),
+
+                const SizedBox(height: 16),
                 Text(
                   'Your PIN and this toggle apply to your account everywhere — logging in on another '
                   'device enforces the same PIN. Biometric and re-lock timing are set per device.',
-                  style: AppTypography.bodySoft(fontSize: 10.5),
+                  style: LuxType.body(fontSize: 10.5, color: LuxColors.inkSoft),
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _Group extends StatelessWidget {
+  const _Group({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
+    );
+  }
+}
+
+class _ToggleTile extends StatelessWidget {
+  const _ToggleTile({required this.label, required this.description, required this.value, required this.onChanged, this.isLast = false});
+
+  final String label;
+  final String description;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: isLast ? null : const BoxDecoration(border: Border(bottom: BorderSide(color: LuxColors.divider))),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: LuxType.heading(fontSize: 13)),
+                const SizedBox(height: 2),
+                Text(description, style: LuxType.body(fontSize: 10.5, color: LuxColors.inkSoft)),
+              ],
+            ),
+          ),
+          Switch(value: value, activeThumbColor: LuxColors.red, onChanged: onChanged),
+        ],
+      ),
     );
   }
 }

@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../models/user_model.dart';
 import '../../../../models/emergency_contact_model.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_typography.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/widgets/app_card.dart';
-import '../../../../core/widgets/app_button.dart';
+import '../../../../core/theme/lux_theme.dart';
 import '../../data/emergency_contact_repository.dart';
 
 class EmergencyContactsScreen extends StatefulWidget {
@@ -66,15 +62,19 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Emergency contacts')),
+      backgroundColor: LuxColors.bg,
+      appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
+        title: Text('EMERGENCY CONTACTS', style: LuxType.eyebrow(fontSize: 11, color: LuxColors.ink)),
+      ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 0),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
             child: Text(
               "Texted alongside Tanod/police every time you trigger SOS — online or offline.",
-              style: AppTypography.bodySoft(fontSize: 11),
+              style: LuxType.body(fontSize: 11.5, color: LuxColors.inkSoft),
             ),
           ),
           Expanded(
@@ -87,37 +87,45 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                 }
                 if (contacts.isEmpty) {
                   return Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: AppCard(child: const Text('No emergency contacts added yet.')),
+                    padding: const EdgeInsets.all(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                      child: Text('No emergency contacts added yet.', style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft)),
+                    ),
                   );
                 }
                 return ListView(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  padding: const EdgeInsets.all(20),
                   children: [
                     for (final contact in contacts)
-                      AppCard(
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
                         child: Row(
                           children: [
                             CircleAvatar(
-                              radius: 16,
-                              backgroundColor: AppColors.tealLight,
+                              radius: 18,
+                              backgroundColor: LuxColors.red,
                               child: Text(
                                 contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
-                                style: AppTypography.display(fontSize: 12, color: AppColors.teal),
+                                style: LuxType.hero(fontSize: 13, color: Colors.white),
                               ),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('${contact.name} (${contact.relationship})', style: AppTypography.body(fontSize: 12.5)),
-                                  Text(contact.phone, style: AppTypography.mono(fontSize: 10.5)),
+                                  Text('${contact.name} (${contact.relationship})', style: LuxType.heading(fontSize: 13)),
+                                  const SizedBox(height: 2),
+                                  Text(contact.phone, style: LuxType.eyebrow(fontSize: 10, color: LuxColors.inkSoft, letterSpacing: 0.3)),
                                 ],
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.urgent),
+                              icon: const Icon(Icons.delete_outline, size: 18, color: LuxColors.red),
                               onPressed: () => _repository.deleteContact(contact.id),
                             ),
                           ],
@@ -129,8 +137,21 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: AppButton(label: '＋ Add contact', variant: AppButtonVariant.outline, onPressed: _showAddDialog),
+            padding: const EdgeInsets.all(20),
+            child: Material(
+              color: LuxColors.red,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: _showAddDialog,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  child: Center(
+                    child: Text('＋ ADD CONTACT', style: LuxType.eyebrow(fontSize: 11.5, color: Colors.white, letterSpacing: 0.6)),
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
