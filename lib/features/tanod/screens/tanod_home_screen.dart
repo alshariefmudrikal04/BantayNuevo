@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
@@ -7,6 +8,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/services/alarm_sound_service.dart';
 import '../data/tanod_sos_repository.dart';
 import '../data/tanod_report_repository.dart';
 import '../../resident/data/notification_repository.dart';
@@ -14,10 +16,19 @@ import '../../auth/data/auth_repository.dart';
 import 'tanod_sos_screen.dart';
 import 'tanod_dashboard_screen.dart';
 import 'tanod_notifications_screen.dart';
+import 'tanod_alert_detail_screen.dart';
 
 /// Tanod landing screen — SOS alerts card + incident reports card, each
 /// with a live count, plus the notifications bell. Built up across
 /// Prompts 9–12.
+///
+/// This is also where the alarm sound + distress banner actually live now
+/// (moved from tanod_sos_screen.dart — see that file's own comment on why):
+/// Home is the one screen that stays alive the whole time a tanod has the
+/// app open (SOS list, report review, etc. are all pushed ON TOP of it via
+/// Navigator, never replacing it), so it's the only reliable place to
+/// detect "a brand new SOS just came in" regardless of which screen the
+/// tanod happens to be looking at.
 class TanodHomeScreen extends StatefulWidget {
   const TanodHomeScreen({super.key, required this.user});
 
@@ -32,10 +43,59 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
   final _reportRepository = TanodReportRepository();
   final _notificationRepository = NotificationRepository();
   final _authRepository = AuthRepository();
-  late final Stream<List<SosAlertModel>> _alertsStream = _repository.streamOpenAlerts();
+
+  // asBroadcastStream() — this now needs two independent listeners: the
+  // StreamBuilder driving the SOS count card below, and _alarmSubscription
+  // watching for brand-new alerts to sound/vibrate/banner for. A plain
+  // Firestore stream is single-subscription only and would throw on the
+  // second listen().
+  late final Stream<List<SosAlertModel>> _alertsStream = _repository.streamOpenAlerts().asBroadcastStream();
   late final Stream<List<ReportModel>> _reportsStream = _reportRepository.streamAllReports();
   late final Stream<List<NotificationModel>> _notificationsStream =
       _notificationRepository.streamForUser(widget.user.uid);
+
+  // Tracks which alert IDs this session has already seen, so the alarm
+  // only fires for GENUINELY NEW alerts — not on every stream tick (which
+  // also fires on routine things like a responder's live location updating
+  // every ~6s). The first emission just records what's already there
+  // without alarming, so opening the app with existing alerts doesn't
+  // blast a sound for all of them at once.
+  final Set<String> _seenAlertIds = {};
+  bool _initialLoadDone = false;
+  StreamSubscription<List<SosAlertModel>>? _alarmSubscription;
+
+  // The most recent not-yet-dismissed new alert — drives the full-width
+  // red distress banner at the top of Home. Deliberately separate from
+  // "alerts I haven't accepted yet" (there could be several of those) —
+  // this is specifically "the one that JUST came in", the thing a tanod
+  // should see and react to first.
+  SosAlertModel? _distressAlert;
+
+  @override
+  void initState() {
+    super.initState();
+    _alarmSubscription = _alertsStream.listen(_checkForNewAlerts);
+  }
+
+  @override
+  void dispose() {
+    _alarmSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _checkForNewAlerts(List<SosAlertModel> alerts) {
+    if (!_initialLoadDone) {
+      _seenAlertIds.addAll(alerts.map((a) => a.id));
+      _initialLoadDone = true;
+      return;
+    }
+    for (final alert in alerts) {
+      if (_seenAlertIds.add(alert.id) && alert.status == SosStatus.active) {
+        AlarmSoundService.play(alert.emergencyType);
+        if (mounted) setState(() => _distressAlert = alert);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,6 +150,21 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
+          if (_distressAlert != null) ...[
+            _DistressBanner(
+              alert: _distressAlert!,
+              repository: _repository,
+              onView: () {
+                final alert = _distressAlert!;
+                setState(() => _distressAlert = null);
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => TanodAlertDetailScreen(alertId: alert.id, user: user)),
+                );
+              },
+              onDismiss: () => setState(() => _distressAlert = null),
+            ),
+            const SizedBox(height: 16),
+          ],
           AppCard(
             child: Row(
               children: [
@@ -221,6 +296,89 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
           ),
 
         ],
+      ),
+    );
+  }
+}
+
+/// "Distress UI" — a hard-to-miss, full-width red banner that takes over
+/// the top of Home the instant a brand-new SOS comes in, regardless of
+/// which screen the tanod was previously looking at (Home is always
+/// underneath). This is deliberately the loudest thing on the screen —
+/// pulsing isn't used since a color/motion effect can still be missed;
+/// pairing this with the sound+vibration from AlarmSoundService (see
+/// _checkForNewAlerts above) covers sight, sound, and touch at once.
+class _DistressBanner extends StatelessWidget {
+  const _DistressBanner({
+    required this.alert,
+    required this.repository,
+    required this.onView,
+    required this.onDismiss,
+  });
+
+  final SosAlertModel alert;
+  final TanodSosRepository repository;
+  final VoidCallback onView;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.urgent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onView,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 22),
+                  const SizedBox(width: 8),
+                  Text(
+                    'NEW SOS — RESPOND NOW',
+                    style: AppTypography.mono(fontSize: 11, color: Colors.white, letterSpacing: 0.6),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70, size: 18),
+                    tooltip: 'Dismiss',
+                    onPressed: onDismiss,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              FutureBuilder<String?>(
+                future: repository.fetchUserName(alert.residentId),
+                builder: (context, snap) => Text(
+                  snap.data ?? 'Resident',
+                  style: AppTypography.display(fontSize: 20, color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(alert.emergencyType.label, style: AppTypography.body(fontSize: 13, color: Colors.white.withOpacity(0.9))),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: onView,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppColors.urgent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Text('VIEW & RESPOND', style: AppTypography.display(fontSize: 13, color: AppColors.urgent)),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

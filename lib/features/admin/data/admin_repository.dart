@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:firebase_core/firebase_core.dart';
 
 import '../../../core/services/cloudinary_uploader.dart';
+import '../../../core/services/email_service.dart';
 import '../../../core/services/philsms_service.dart';
 import '../../../models/report_model.dart';
 import '../../../models/sos_alert_model.dart';
@@ -180,18 +181,16 @@ class AdminRepository {
     }
   }
 
-  /// Writes a doc to the `mail` collection, the trigger document format
-  /// expected by Firebase's official "Trigger Email from Firestore"
-  /// extension. That extension (installed + configured with your own SMTP
-  /// provider from the Firebase console — a one-time manual setup step,
-  /// same category as the Cloudinary swap-in elsewhere in this project)
-  /// is what actually sends the email; this call by itself does nothing
-  /// without it installed.
+  /// Sends via EmailJS (see EmailService/emailjs_config.dart) — a
+  /// client-side email API, no Cloud Function/Blaze plan required. This
+  /// replaced an earlier plan of writing to a `mail` collection for
+  /// Firebase's "Trigger Email from Firestore" extension: that extension
+  /// deploys as a Cloud Function under the hood, so it needs Blaze same
+  /// as everything else Cloud-Functions-based in this project — a dead
+  /// end once it turned out Blaze wasn't available. EmailJS's own free
+  /// tier and client-side design sidesteps that entirely.
   Future<void> _sendVerificationEmail(UserModel resident, {required String subject, required String body}) {
-    return _firestore.collection('mail').add({
-      'to': [resident.email],
-      'message': {'subject': subject, 'text': body},
-    });
+    return EmailService.send(to: resident.email, subject: subject, body: body);
   }
 
   // ---------------------------------------------------------------------

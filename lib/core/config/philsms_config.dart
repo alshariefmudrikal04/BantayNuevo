@@ -18,8 +18,8 @@
 class PhilSmsConfig {
   PhilSmsConfig._();
 
-  static const apiKey = 'PASTE_YOUR_PHILSMS_API_KEY_HERE';
-  static const senderId = 'PASTE_YOUR_SENDER_ID_HERE';
+  static const apiKey = '3358|EZRtExe55kjwx3Vj2aDhLbkEGx4quthHUImlOMJS774a7522';
+  static const senderId = 'PhilSMS';
 
   static Uri get sendUrl => Uri.parse('https://dashboard.philsms.com/api/v3/sms/send');
 }

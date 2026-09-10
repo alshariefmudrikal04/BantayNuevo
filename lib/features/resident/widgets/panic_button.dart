@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
 
-/// Circular SOS button — radial red gradient with a soft halo ring, per
-/// AGENTS.md §4 shape spec (150px diameter, 8px halo). Reused in two
-/// places with different meanings, distinguished by label/icon:
-///   - sos_screen.dart: PANIC / HOLD TO SEND — tapping this directly
+/// Circular SOS button — solid red fill, bold white label, per the new
+/// "luxury minimal" reference (dribbble.com/shots/27499918): a plain flat
+/// circle reads more confident/urgent than the old soft radial-gradient +
+/// halo look. Reused in two places with different meanings, distinguished
+/// by label/icon:
+///   - sos_screen.dart: SOS / TAP FOR EMERGENCY — tapping this directly
 ///     triggers _trigger(), sends the real alert immediately.
 ///   - resident_home_screen.dart: SOS / TAP TO SEND — tapping this just
 ///     navigates into SosScreen, it does NOT send anything itself. A big
@@ -18,8 +19,8 @@ class PanicButton extends StatelessWidget {
     super.key,
     required this.onPressed,
     this.busy = false,
-    this.label = 'PANIC',
-    this.sublabel = 'HOLD TO SEND',
+    this.label = 'SOS',
+    this.sublabel = 'TAP FOR EMERGENCY',
     this.icon,
   });
 
@@ -31,53 +32,38 @@ class PanicButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: AppSpacing.panicButtonDiameter,
-      height: AppSpacing.panicButtonDiameter,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.urgentLight,
-            spreadRadius: AppSpacing.panicButtonHaloWidth,
-          ),
-        ],
-      ),
-      child: Material(
-        shape: const CircleBorder(),
-        color: Colors.transparent,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: busy ? null : onPressed,
-          child: Container(
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                center: Alignment(-0.3, -0.4),
-                colors: [Color(0xFFE05B44), AppColors.urgent],
-                stops: [0.0, 0.7],
-              ),
-            ),
-            child: Center(
-              child: busy
-                  ? const SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                    )
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (icon != null) ...[
-                          Icon(icon, color: Colors.white, size: 26),
-                          const SizedBox(height: 4),
-                        ],
-                        Text(label, style: AppTypography.display(fontSize: 20, color: Colors.white)),
-                        const SizedBox(height: 2),
-                        Text(sublabel, style: AppTypography.mono(fontSize: 9, color: Colors.white.withOpacity(0.9))),
+    return Material(
+      shape: const CircleBorder(),
+      color: LuxColors.red,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: busy ? null : onPressed,
+        child: SizedBox(
+          width: AppSpacing.panicButtonDiameter,
+          height: AppSpacing.panicButtonDiameter,
+          child: Center(
+            child: busy
+                ? const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (icon != null) ...[
+                        Icon(icon, color: Colors.white, size: 26),
+                        const SizedBox(height: 6),
                       ],
-                    ),
-            ),
+                      Text(label, style: LuxType.hero(fontSize: 26, color: Colors.white)),
+                      const SizedBox(height: 4),
+                      Text(
+                        sublabel,
+                        textAlign: TextAlign.center,
+                        style: LuxType.eyebrow(fontSize: 9, color: Colors.white.withOpacity(0.9), letterSpacing: 0.8),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),

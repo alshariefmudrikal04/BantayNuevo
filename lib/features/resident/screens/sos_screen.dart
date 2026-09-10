@@ -7,7 +7,7 @@ import '../../../models/emergency_contact_model.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_card.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/live_map.dart';
 import '../../../core/services/philsms_service.dart';
@@ -176,7 +176,7 @@ class _SosScreenState extends State<SosScreen> {
 
     if (position == null) {
       _showSnack('Could not get your location — check location permissions and try again.', isError: true);
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
       return;
     }
 
@@ -199,11 +199,21 @@ class _SosScreenState extends State<SosScreen> {
             onTimeout: () => throw TimeoutException('Could not reach the server'),
           );
 
-      setState(() {
-        _activeAlertId = alertId;
-        _alertStream = _sosRepository.streamAlert(alertId);
-        _lastKnownPosition = position;
-      });
+      // Only the setState (UI-only) needs a mounted guard — the alert
+      // already exists in Firestore at this point regardless of whether
+      // this screen is still around to show it, so starting live location
+      // updates and notifying emergency contacts must still happen even
+      // if the resident somehow navigated away in the ~12 seconds this
+      // took. Silently dropping those because the screen got disposed
+      // would be a much worse bug than a skipped UI update, given this is
+      // the emergency-alert flow.
+      if (mounted) {
+        setState(() {
+          _activeAlertId = alertId;
+          _alertStream = _sosRepository.streamAlert(alertId);
+          _lastKnownPosition = position;
+        });
+      }
       _startLiveLocationUpdates(alertId);
       _showSnack('Distress signal sent — Tanod and your emergency contacts are being notified.');
       unawaited(_notifyEmergencyContacts(alertId: alertId, position: position));
@@ -313,10 +323,15 @@ class _SosScreenState extends State<SosScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: _countingDown ? AppColors.urgent : AppColors.bg,
+        backgroundColor: _countingDown ? LuxColors.red : LuxColors.black,
+        extendBodyBehindAppBar: true,
         appBar: _countingDown
             ? null
-            : AppBar(title: const Text('Emergency SOS')),
+            : AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                iconTheme: const IconThemeData(color: Colors.white),
+              ),
         body: SafeArea(
           child: _activeAlertId != null
               ? _buildTrackingView(context)
@@ -328,46 +343,53 @@ class _SosScreenState extends State<SosScreen> {
     );
   }
 
-  /// Required first step now — picking a type both selects it AND starts
-  /// the 10s countdown in one tap (no separate confirm button), so this
-  /// doesn't add meaningful friction versus the old single panic button.
-  /// The type chosen here is what determines which alarm sound plays on
-  /// the tanod side — see core/services/alarm_sound_service.dart.
+  /// The main SOS entry screen — full-bleed black, matching the reference
+  /// (dribbble.com/shots/27499918): a giant "SOS" wordmark and tagline up
+  /// top, then the required emergency-type picker restyled as minimal
+  /// dark rows rather than removed — picking a type is what selects which
+  /// alarm sound plays on the tanod side (see
+  /// core/services/alarm_sound_service.dart), so it stays a required step,
+  /// just skinned to fit this screen's drama instead of feeling like a
+  /// bolted-on settings list. Picking a type both selects it AND starts
+  /// the 10s countdown in one tap.
   Widget _buildTypeSelectionView(BuildContext context) {
     final types = [
-      (EmergencyType.physicalViolence, Icons.front_hand, AppColors.urgent, AppColors.urgentLight),
-      (EmergencyType.domesticViolence, Icons.home, AppColors.urgent, AppColors.urgentLight),
-      (EmergencyType.threats, Icons.warning_amber_rounded, AppColors.amber, AppColors.amberLight),
-      (EmergencyType.minorAbuse, Icons.child_care, AppColors.lock, AppColors.lockLight),
-      (EmergencyType.other, Icons.error_outline, AppColors.navy, AppColors.tealLight),
+      (EmergencyType.physicalViolence, Icons.front_hand),
+      (EmergencyType.domesticViolence, Icons.home),
+      (EmergencyType.threats, Icons.warning_amber_rounded),
+      (EmergencyType.minorAbuse, Icons.child_care),
+      (EmergencyType.other, Icons.error_outline),
     ];
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SizedBox(height: 8),
+          Text('SOS', style: LuxType.hero(fontSize: 64, color: Colors.white)),
+          const SizedBox(height: 4),
+          Text('TANOD RESPONDS. ANYTIME.', style: LuxType.eyebrow(fontSize: 11, color: Colors.white70)),
+          const SizedBox(height: 28),
           Text(
-            'What kind of emergency is this?',
-            style: AppTypography.display(fontSize: 17),
-            textAlign: TextAlign.center,
+            'WHAT KIND OF EMERGENCY IS THIS?',
+            style: LuxType.eyebrow(fontSize: 10.5, color: Colors.white54),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             'Tapping one starts a 10-second countdown before Tanod is alerted — plenty of time to cancel '
             'if it was an accident.',
-            textAlign: TextAlign.center,
-            style: AppTypography.bodySoft(fontSize: 12),
+            style: LuxType.body(fontSize: 12, color: Colors.white54),
           ),
-          const SizedBox(height: 20),
-          for (final (type, icon, color, bg) in types)
+          const SizedBox(height: 16),
+          for (final (type, icon) in types)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Material(
-                color: bg,
-                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(14),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   onTap: () => _selectTypeAndStartCountdown(type),
                   child: Padding(
                     padding: const EdgeInsets.all(14),
@@ -376,27 +398,41 @@ class _SosScreenState extends State<SosScreen> {
                         Container(
                           width: 40,
                           height: 40,
-                          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                          decoration: const BoxDecoration(color: LuxColors.red, shape: BoxShape.circle),
                           child: Icon(icon, color: Colors.white, size: 20),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
-                          child: Text(type.label, style: AppTypography.display(fontSize: 14.5, color: AppColors.ink)),
+                          child: Text(
+                            type.label.toUpperCase(),
+                            style: LuxType.heading(fontSize: 14, color: Colors.white),
+                          ),
                         ),
-                        Icon(Icons.chevron_right, color: color),
+                        const Icon(Icons.chevron_right, color: Colors.white38),
                       ],
                     ),
                   ),
                 ),
               ),
             ),
-          const SizedBox(height: 10),
-          AppCard(
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: const Color(0xFF141414), borderRadius: BorderRadius.circular(14)),
             child: Text(
               'Once sent, your emergency contacts are texted automatically with your location — add them under '
               "Profile → Emergency contacts if you haven't yet, since they don't use the app.",
-              style: AppTypography.bodySoft(fontSize: 11),
+              style: LuxType.body(fontSize: 11, color: Colors.white60),
             ),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: const [
+              _SosFeatureBadge(icon: Icons.shield_outlined, label: '24/7\nMONITORING'),
+              _SosFeatureBadge(icon: Icons.my_location, label: 'LIVE\nGPS'),
+              _SosFeatureBadge(icon: Icons.lock_outline, label: 'ENCRYPTED\nEVIDENCE'),
+            ],
           ),
         ],
       ),
@@ -423,20 +459,20 @@ class _SosScreenState extends State<SosScreen> {
                   child: Center(
                     child: Text(
                       '$_secondsLeft',
-                      style: AppTypography.display(fontSize: 44, color: AppColors.urgent),
+                      style: LuxType.hero(fontSize: 44, color: LuxColors.red),
                     ),
                   ),
                 ),
                 const SizedBox(height: 28),
                 Text(
-                  'Emergency Calling...',
-                  style: AppTypography.display(fontSize: 22, color: Colors.white),
+                  'SENDING SOS...',
+                  style: LuxType.hero(fontSize: 26, color: Colors.white),
                 ),
                 if (_selectedType != null) ...[
                   const SizedBox(height: 4),
                   Text(
-                    _selectedType!.label,
-                    style: AppTypography.mono(fontSize: 11, color: Colors.white.withOpacity(0.85)),
+                    _selectedType!.label.toUpperCase(),
+                    style: LuxType.eyebrow(fontSize: 11, color: Colors.white.withOpacity(0.85)),
                   ),
                 ],
                 const SizedBox(height: 8),
@@ -444,7 +480,7 @@ class _SosScreenState extends State<SosScreen> {
                   'Tanod and your emergency contacts will be notified in $_secondsLeft seconds. '
                   'Tap "I am safe" below to stop this.',
                   textAlign: TextAlign.center,
-                  style: AppTypography.body(fontSize: 12.5, color: Colors.white.withOpacity(0.85)),
+                  style: LuxType.body(fontSize: 12.5, color: Colors.white.withOpacity(0.85)),
                 ),
                 const SizedBox(height: 36),
                 SizedBox(
@@ -465,11 +501,11 @@ class _SosScreenState extends State<SosScreen> {
               onPressed: _cancelCountdown,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
-                foregroundColor: AppColors.urgent,
+                foregroundColor: LuxColors.red,
                 shape: const StadiumBorder(),
                 elevation: 0,
               ),
-              child: Text('I AM SAFE', style: AppTypography.display(fontSize: 14, color: AppColors.urgent)),
+              child: Text('I AM SAFE', style: LuxType.heading(fontSize: 14, color: LuxColors.red)),
             ),
           ),
         ),
@@ -566,6 +602,39 @@ class _SosScreenState extends State<SosScreen> {
   }
 }
 
+/// Small icon-over-label badge for the SOS screen's bottom feature row —
+/// matches the reference's "24/7 PROTECTION / REAL-TIME LOCATION /
+/// PRIVATE & SECURE" row, reworded to describe this app's actual features.
+class _SosFeatureBadge extends StatelessWidget {
+  const _SosFeatureBadge({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Icon(icon, color: Colors.white70, size: 18),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: LuxType.eyebrow(fontSize: 8.5, color: Colors.white54, letterSpacing: 0.6),
+        ),
+      ],
+    );
+  }
+}
+
 /// Pulsing center icon with up to 4 emergency-contact avatars scattered
 /// around it in fixed corner-ish positions, matching the reference layout
 /// (broadcast icon in the middle, contacts orbiting it). Purely decorative
@@ -601,7 +670,7 @@ class _ContactBroadcastRingState extends State<_ContactBroadcastRing> with Singl
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 6)],
       ),
       child: Center(
-        child: Text(initial, style: AppTypography.display(fontSize: 16, color: AppColors.urgent)),
+        child: Text(initial, style: LuxType.hero(fontSize: 16, color: LuxColors.red)),
       ),
     );
   }
@@ -639,7 +708,7 @@ class _ContactBroadcastRingState extends State<_ContactBroadcastRing> with Singl
           width: 56,
           height: 56,
           decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
-          child: const Icon(Icons.sensors, color: AppColors.urgent, size: 26),
+          child: const Icon(Icons.sensors, color: LuxColors.red, size: 26),
         ),
         for (int i = 0; i < widget.contacts.length && i < 4; i++)
           Align(alignment: positions[i], child: _avatar(widget.contacts[i])),
