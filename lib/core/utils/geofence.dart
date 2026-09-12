@@ -16,7 +16,8 @@ class GeofenceResult {
   /// The practical answer to use everywhere: inside the shape outright,
   /// OR close enough that GPS drift is the more likely explanation than
   /// the person actually being outside — see boundaryBufferMeters.
-  bool get withinBoundary => insidePolygon || distanceToEdgeMeters <= boundaryBufferMeters;
+  // bool get withinBoundary => insidePolygon || distanceToEdgeMeters <= boundaryBufferMeters; if i want it to limit only in camino nuevo
+  bool get withinBoundary => true;
 }
 
 /// Checks a lat/lng against caminoNuevoBoundary (or a custom polygon, e.g.

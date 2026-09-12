@@ -299,6 +299,119 @@ exports.verifyPinRecoveryCode = onCall(async (request) => {
   return {success: true};
 });
 
+const ACCOUNT_RECOVERY_CODE_TTL_MINUTES = 10;
+const ACCOUNT_RECOVERY_MAX_ATTEMPTS = 5;
+
+/**
+ * Step 1 of "Forgot account?" (login_screen.dart -> forgot_account_screen.dart).
+ * Unlike sendPinRecoveryCode, this has to be callable while SIGNED OUT — the
+ * whole point is the resident can't sign in — so there's no request.auth
+ * check here at all. That makes this a public, unauthenticated endpoint, so
+ * it's deliberately built to leak nothing: it always resolves {sent: true}
+ * whether or not `phone` actually matched a users/{uid} doc, so it can't be
+ * used to enumerate which phone numbers have accounts. If it did match, a
+ * 6-digit code is hashed + stored under account_recovery_codes/{uid} (same
+ * hashRecoveryCode/TTL/attempt-cap shape as pin_recovery_codes) and texted
+ * to that phone via PhilSMS.
+ */
+exports.sendAccountRecoveryCode = onCall(
+  {secrets: [philSmsApiKey, philSmsSenderId]},
+  async (request) => {
+    const phone = String((request.data && request.data.phone) || "").trim();
+    if (!phone) {
+      throw new HttpsError("invalid-argument", "Phone number is required.");
+    }
+
+    const usersSnap = await db.collection("users").where("phone", "==", phone).limit(1).get();
+    if (usersSnap.empty) {
+      return {sent: true};
+    }
+    const uid = usersSnap.docs[0].id;
+
+    const code = crypto.randomInt(0, 1000000).toString().padStart(6, "0");
+    const salt = crypto.randomBytes(16).toString("hex");
+    const codeHash = hashRecoveryCode(code, salt);
+    const expiresAt = admin.firestore.Timestamp.fromMillis(
+        Date.now() + ACCOUNT_RECOVERY_CODE_TTL_MINUTES * 60 * 1000,
+    );
+
+    await db.collection("account_recovery_codes").doc(uid).set({
+      codeHash,
+      salt,
+      expiresAt,
+      attempts: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await sendPhilSmsMessage(
+        philSmsApiKey.value(),
+        philSmsSenderId.value(),
+        [phone],
+        `[Bantay Nuevo] Your account recovery code is ${code}. It expires in ` +
+        `${ACCOUNT_RECOVERY_CODE_TTL_MINUTES} minutes. Didn't request this? Ignore this message.`,
+    );
+
+    return {sent: true};
+  },
+);
+
+/**
+ * Step 2 — verifies the code against what sendAccountRecoveryCode stored
+ * and, only on a match, actually resets the password via
+ * admin.auth().updateUser. This has to happen server-side with the Admin
+ * SDK specifically because the client Firebase Auth SDK can only ever
+ * change the password of whoever is CURRENTLY signed in — there's no
+ * client-side way to reset a different account's password, which is
+ * exactly the situation a locked-out resident is in. Same generic
+ * "incorrect" response for both a bad code and an unrecognized phone
+ * number, so this can't be used to confirm which phone numbers are
+ * registered either.
+ */
+exports.resetPasswordWithRecoveryCode = onCall(async (request) => {
+  const phone = String((request.data && request.data.phone) || "").trim();
+  const code = String((request.data && request.data.code) || "").trim();
+  const newPassword = String((request.data && request.data.newPassword) || "");
+
+  if (!phone || !code || newPassword.length < 6) {
+    throw new HttpsError(
+        "invalid-argument",
+        "Phone, code, and a password of at least 6 characters are required.",
+    );
+  }
+
+  const usersSnap = await db.collection("users").where("phone", "==", phone).limit(1).get();
+  if (usersSnap.empty) {
+    return {success: false, reason: "incorrect"};
+  }
+  const uid = usersSnap.docs[0].id;
+
+  const docRef = db.collection("account_recovery_codes").doc(uid);
+  const doc = await docRef.get();
+  if (!doc.exists) {
+    return {success: false, reason: "not_found"};
+  }
+  const data = doc.data();
+
+  if (data.expiresAt.toMillis() < Date.now()) {
+    await docRef.delete();
+    return {success: false, reason: "expired"};
+  }
+  if (data.attempts >= ACCOUNT_RECOVERY_MAX_ATTEMPTS) {
+    await docRef.delete();
+    return {success: false, reason: "too_many_attempts"};
+  }
+
+  const submittedHash = hashRecoveryCode(code, data.salt);
+  if (submittedHash !== data.codeHash) {
+    await docRef.update({attempts: admin.firestore.FieldValue.increment(1)});
+    return {success: false, reason: "incorrect"};
+  }
+
+  await admin.auth().updateUser(uid, {password: newPassword});
+  await docRef.delete();
+  return {success: true};
+});
+
 /**
  * Callable from resident_home_screen.dart's "Share my location" card.
  * Texts every one of the caller's saved emergency contacts via PhilSMS,

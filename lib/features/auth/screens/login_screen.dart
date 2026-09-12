@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_button.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../data/auth_repository.dart';
 import 'register_screen.dart';
+import 'forgot_account_screen.dart';
 
 /// The app's single sign-in screen — no role picker, no "which login are
 /// you" branching. Whoever's account this is (resident, tanod, police, or
@@ -14,6 +12,14 @@ import 'register_screen.dart';
 /// earlier role_select_screen.dart that asked the person to pick a role
 /// card before even seeing a login form — redundant once every account
 /// already knows its own role server-side.
+///
+/// Reskinned to the same "luxury minimal" design used on
+/// resident_home_screen.dart (LuxColors/LuxType — see lux_theme.dart) so
+/// the very first screen someone sees matches the rest of the resident
+/// experience instead of the old navy/sage palette. Copy was trimmed to
+/// just what's needed to act — no "Sign in to continue." filler line, and
+/// the tanod/police/admin explainer shrunk to a single short caption
+/// instead of a full sentence.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -26,6 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -53,7 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // back to — just let the StreamBuilder above take over.
     } catch (e) {
       setState(() {
-        _error = 'Could not sign in: $e';
+        _error = AuthRepository.friendlyError(e);
         _loading = false;
       });
     }
@@ -62,55 +69,89 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: LuxColors.bg,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppSpacing.xl),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.teal, shape: BoxShape.circle)),
+                      Container(width: 8, height: 8, decoration: const BoxDecoration(color: LuxColors.red, shape: BoxShape.circle)),
                       const SizedBox(width: 8),
-                      Text('Bantay Nuevo', style: AppTypography.mono(fontSize: 11, letterSpacing: 0.4)),
+                      Text('BANTAY NUEVO', style: LuxType.eyebrow(fontSize: 11)),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Text('Welcome back', style: AppTypography.display(fontSize: 24)),
-                  const SizedBox(height: 4),
-                  Text('Sign in to continue.', style: AppTypography.bodySoft(fontSize: 12.5)),
-                  const SizedBox(height: 24),
-                  _Field(label: 'Email', controller: _emailController, keyboardType: TextInputType.emailAddress),
-                  const SizedBox(height: 12),
-                  _Field(label: 'Password', controller: _passwordController, obscure: true),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(_error!, style: AppTypography.mono(fontSize: 11, color: AppColors.urgent)),
-                  ],
-                  const SizedBox(height: 20),
-                  AppButton(
-                    label: _loading ? 'Signing in...' : 'Log in',
-                    onPressed: _loading ? null : _submit,
+                  const SizedBox(height: 28),
+                  Text('Welcome back', style: LuxType.hero(fontSize: 34)),
+                  const SizedBox(height: 28),
+                  _LuxField(
+                    label: 'Email',
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
                   ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: TextButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                  const SizedBox(height: 12),
+                  _LuxField(
+                    label: 'Password',
+                    controller: _passwordController,
+                    obscure: _obscurePassword,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        size: 19,
+                        color: LuxColors.inkSoft,
                       ),
-                      child: const Text('No account yet? Register as a resident'),
+                      tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ForgotAccountScreen()),
+                      ),
+                      child: Text('Forgot account?', style: LuxType.eyebrow(fontSize: 10.5, color: LuxColors.red, letterSpacing: 0.2)),
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(_error!, style: LuxType.body(fontSize: 12, color: LuxColors.red)),
+                  ],
+                  const SizedBox(height: 22),
+                  _LuxButton(
+                    label: _loading ? 'Signing in...' : 'Log in',
+                    loading: _loading,
+                    onTap: _loading ? null : _submit,
+                  ),
+                  const SizedBox(height: 20),
+                  Center(
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                      ),
+                      child: RichText(
+                        text: TextSpan(
+                          style: LuxType.body(fontSize: 12.5, color: LuxColors.inkSoft),
+                          children: [
+                            const TextSpan(text: 'No account yet? '),
+                            TextSpan(text: 'Register', style: LuxType.body(fontSize: 12.5, color: LuxColors.red, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   Center(
                     child: Text(
-                      'Tanod, police, and admin accounts are created by a barangay admin.',
+                      'Tanod, police, and admin accounts are issued by an admin.',
                       textAlign: TextAlign.center,
-                      style: AppTypography.mono(fontSize: 10.5, color: AppColors.inkSoft),
+                      style: LuxType.eyebrow(fontSize: 9.5, color: LuxColors.inkSoft, letterSpacing: 0.2),
                     ),
                   ),
                 ],
@@ -123,27 +164,89 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class _Field extends StatelessWidget {
-  const _Field({required this.label, required this.controller, this.obscure = false, this.keyboardType});
+/// Card-style input matching the row treatment used across
+/// resident_home_screen.dart (white surface, hairline divider border,
+/// rounded corners) instead of the old underline-style TextField.
+class _LuxField extends StatelessWidget {
+  const _LuxField({
+    required this.label,
+    required this.controller,
+    this.obscure = false,
+    this.keyboardType,
+    this.suffixIcon,
+  });
 
   final String label;
   final TextEditingController controller;
   final bool obscure;
   final TextInputType? keyboardType;
+  final Widget? suffixIcon;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label.toUpperCase(), style: AppTypography.mono(fontSize: 10.5, letterSpacing: 0.4)),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          obscureText: obscure,
-          keyboardType: keyboardType,
+        Text(label.toUpperCase(), style: LuxType.eyebrow(fontSize: 10)),
+        const SizedBox(height: 6),
+        Container(
+          decoration: BoxDecoration(
+            color: LuxColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: LuxColors.divider),
+          ),
+          child: TextField(
+            controller: controller,
+            obscureText: obscure,
+            keyboardType: keyboardType,
+            style: LuxType.body(fontSize: 14),
+            decoration: InputDecoration(
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              suffixIcon: suffixIcon,
+            ),
+          ),
         ),
       ],
+    );
+  }
+}
+
+/// Full-width black CTA button, matching the weight/shape language of
+/// resident_home_screen.dart's _SosBanner and _ServiceRow (solid fill,
+/// 14-16px radius, InkWell ripple) rather than the old ElevatedButton
+/// default styling.
+class _LuxButton extends StatelessWidget {
+  const _LuxButton({required this.label, required this.onTap, this.loading = false});
+
+  final String label;
+  final VoidCallback? onTap;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: LuxColors.black,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: loading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : Text(label, style: LuxType.heading(fontSize: 14, color: Colors.white)),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

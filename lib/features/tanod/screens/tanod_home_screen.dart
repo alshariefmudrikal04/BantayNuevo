@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
 import '../../../models/report_model.dart';
 import '../../../models/notification_model.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_card.dart';
+import '../../../core/theme/lux_theme.dart';
+import '../../../core/widgets/live_map.dart';
 import '../../../core/services/alarm_sound_service.dart';
 import '../data/tanod_sos_repository.dart';
 import '../data/tanod_report_repository.dart';
@@ -17,18 +16,8 @@ import 'tanod_sos_screen.dart';
 import 'tanod_dashboard_screen.dart';
 import 'tanod_notifications_screen.dart';
 import 'tanod_alert_detail_screen.dart';
+import 'tanod_report_review_screen.dart';
 
-/// Tanod landing screen — SOS alerts card + incident reports card, each
-/// with a live count, plus the notifications bell. Built up across
-/// Prompts 9–12.
-///
-/// This is also where the alarm sound + distress banner actually live now
-/// (moved from tanod_sos_screen.dart — see that file's own comment on why):
-/// Home is the one screen that stays alive the whole time a tanod has the
-/// app open (SOS list, report review, etc. are all pushed ON TOP of it via
-/// Navigator, never replacing it), so it's the only reliable place to
-/// detect "a brand new SOS just came in" regardless of which screen the
-/// tanod happens to be looking at.
 class TanodHomeScreen extends StatefulWidget {
   const TanodHomeScreen({super.key, required this.user});
 
@@ -44,37 +33,26 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
   final _notificationRepository = NotificationRepository();
   final _authRepository = AuthRepository();
 
-  // asBroadcastStream() — this now needs two independent listeners: the
-  // StreamBuilder driving the SOS count card below, and _alarmSubscription
-  // watching for brand-new alerts to sound/vibrate/banner for. A plain
-  // Firestore stream is single-subscription only and would throw on the
-  // second listen().
   late final Stream<List<SosAlertModel>> _alertsStream = _repository.streamOpenAlerts().asBroadcastStream();
   late final Stream<List<ReportModel>> _reportsStream = _reportRepository.streamAllReports();
   late final Stream<List<NotificationModel>> _notificationsStream =
       _notificationRepository.streamForUser(widget.user.uid);
 
-  // Tracks which alert IDs this session has already seen, so the alarm
-  // only fires for GENUINELY NEW alerts — not on every stream tick (which
-  // also fires on routine things like a responder's live location updating
-  // every ~6s). The first emission just records what's already there
-  // without alarming, so opening the app with existing alerts doesn't
-  // blast a sound for all of them at once.
   final Set<String> _seenAlertIds = {};
   bool _initialLoadDone = false;
   StreamSubscription<List<SosAlertModel>>? _alarmSubscription;
 
-  // The most recent not-yet-dismissed new alert — drives the full-width
-  // red distress banner at the top of Home. Deliberately separate from
-  // "alerts I haven't accepted yet" (there could be several of those) —
-  // this is specifically "the one that JUST came in", the thing a tanod
-  // should see and react to first.
   SosAlertModel? _distressAlert;
+
+  Position? _currentPosition;
+  DateTime? _positionUpdatedAt;
+  bool _locatingSelf = true;
 
   @override
   void initState() {
     super.initState();
     _alarmSubscription = _alertsStream.listen(_checkForNewAlerts);
+    _loadCurrentLocation();
   }
 
   @override
@@ -97,20 +75,65 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
     }
   }
 
+  Future<void> _loadCurrentLocation() async {
+    setState(() => _locatingSelf = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) setState(() => _locatingSelf = false);
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        if (mounted) setState(() => _locatingSelf = false);
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      setState(() {
+        _currentPosition = position;
+        _positionUpdatedAt = DateTime.now();
+        _locatingSelf = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _locatingSelf = false);
+    }
+  }
+
+  String _relativeTime(DateTime? time) {
+    if (time == null) return '';
+    final diff = DateTime.now().difference(time);
+    if (diff.inSeconds < 60) return 'Updated just now';
+    if (diff.inMinutes < 60) return 'Updated ${diff.inMinutes} min ago';
+    return 'Updated ${diff.inHours} hr ago';
+  }
+
+  String _formatReportDate(DateTime? date) {
+    if (date == null) return 'Just now';
+    return 'Filed ${date.month}/${date.day}/${date.year}';
+  }
+
+  ({String label, Color color}) _statusMeta(ReportStatus s) => switch (s) {
+        ReportStatus.pending => (label: 'PENDING', color: LuxColors.amber),
+        ReportStatus.inProgress => (label: 'IN PROGRESS', color: LuxColors.black),
+        ReportStatus.resolved => (label: 'RESOLVED', color: LuxColors.success),
+      };
+
   @override
   Widget build(BuildContext context) {
     final user = widget.user;
+    final firstName = user.name.trim().isEmpty ? 'TANOD' : user.name.trim().split(' ').first.toUpperCase();
+
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: LuxColors.bg,
       appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
         automaticallyImplyLeading: false,
-        title: Row(
-          children: [
-            Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.teal, shape: BoxShape.circle)),
-            const SizedBox(width: 8),
-            const Text('Bantay Nuevo'),
-          ],
-        ),
         actions: [
           StreamBuilder<List<NotificationModel>>(
             stream: _notificationsStream,
@@ -120,7 +143,7 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
                 clipBehavior: Clip.none,
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.notifications_none, size: 22),
+                    icon: const Icon(Icons.notifications_none, size: 22, color: LuxColors.black),
                     tooltip: 'Notifications',
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => TanodNotificationsScreen(user: user)),
@@ -133,7 +156,7 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
                       child: Container(
                         width: 8,
                         height: 8,
-                        decoration: const BoxDecoration(color: AppColors.urgent, shape: BoxShape.circle),
+                        decoration: const BoxDecoration(color: LuxColors.red, shape: BoxShape.circle),
                       ),
                     ),
                 ],
@@ -141,15 +164,51 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.logout, size: 20),
+            icon: const Icon(Icons.logout, size: 20, color: LuxColors.black),
             tooltip: 'Log out',
             onPressed: _authRepository.logout,
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ON DUTY,', style: LuxType.eyebrow(fontSize: 11)),
+                    const SizedBox(height: 2),
+                    Text(firstName, style: LuxType.hero(fontSize: 36)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: LuxColors.success.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(width: 6, height: 6, decoration: const BoxDecoration(color: LuxColors.success, shape: BoxShape.circle)),
+                    const SizedBox(width: 6),
+                    Text('PATROLLING', style: LuxType.eyebrow(fontSize: 9, color: LuxColors.success, letterSpacing: 0.4)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text('Tanod · ${user.barangay}${user.purok.isNotEmpty ? ', Purok ${user.purok}' : ''}',
+              style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft)),
+          const SizedBox(height: 22),
+
           if (_distressAlert != null) ...[
             _DistressBanner(
               alert: _distressAlert!,
@@ -163,151 +222,186 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
               },
               onDismiss: () => setState(() => _distressAlert = null),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 22),
           ],
-          AppCard(
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: AppColors.tealLight,
-                  child: Text(
-                    user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-                    style: AppTypography.display(fontSize: 15, color: AppColors.teal),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Hi, ${user.name}', style: AppTypography.display(fontSize: 16)),
-                      Text('Tanod · ${user.barangay}', style: AppTypography.bodySoft(fontSize: 11.5)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
 
-          const SizedBox(height: 16),
+          Text('PRIORITY', style: LuxType.eyebrow(fontSize: 10.5)),
+          const SizedBox(height: 10),
           StreamBuilder<List<SosAlertModel>>(
             stream: _alertsStream,
             builder: (context, snapshot) {
               final alerts = snapshot.data ?? [];
               final activeCount = alerts.where((a) => a.status == SosStatus.active).length;
               final respondingCount = alerts.where((a) => a.status == SosStatus.responded).length;
+              final urgent = activeCount > 0;
 
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
+              return _SosCard(
+                urgent: urgent,
+                subtitle: urgent
+                    ? '$activeCount waiting · $respondingCount being responded to'
+                    : respondingCount > 0
+                        ? '$respondingCount being responded to'
+                        : 'No active alerts right now',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => TanodSosScreen(user: user)),
-                ),
-                child: AppCard(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: activeCount > 0 ? AppColors.urgentLight : AppColors.tealLight,
-                          borderRadius: BorderRadius.circular(11),
-                        ),
-                        alignment: Alignment.center,
-                        child: Icon(
-                          Icons.warning_amber_rounded,
-                          color: activeCount > 0 ? AppColors.urgent : AppColors.teal,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('SOS alerts', style: AppTypography.display(fontSize: 14)),
-                            Text(
-                              activeCount > 0
-                                  ? '$activeCount waiting · $respondingCount being responded to'
-                                  : respondingCount > 0
-                                      ? '$respondingCount being responded to'
-                                      : 'No active alerts right now',
-                              style: AppTypography.bodySoft(fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, color: AppColors.inkSoft),
-                    ],
-                  ),
                 ),
               );
             },
           ),
+          const SizedBox(height: 26),
 
+          Text('QUICK ACTIONS', style: LuxType.eyebrow(fontSize: 10.5)),
           const SizedBox(height: 10),
           StreamBuilder<List<ReportModel>>(
             stream: _reportsStream,
             builder: (context, snapshot) {
               final reports = snapshot.data ?? [];
               final pendingCount = reports.where((r) => r.status == ReportStatus.pending).length;
-
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
+              return _ServiceRow(
+                icon: Icons.assignment_outlined,
+                title: 'Incident Reports',
+                subtitle: pendingCount > 0
+                    ? '$pendingCount pending review · ${reports.length} total'
+                    : '${reports.length} total, none pending',
+                isLast: true,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => TanodDashboardScreen(user: user)),
-                ),
-                child: AppCard(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: pendingCount > 0 ? AppColors.amberLight : AppColors.tealLight,
-                          borderRadius: BorderRadius.circular(11),
-                        ),
-                        alignment: Alignment.center,
-                        child: Icon(
-                          Icons.assignment_outlined,
-                          color: pendingCount > 0 ? AppColors.amber : AppColors.teal,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Incident reports', style: AppTypography.display(fontSize: 14)),
-                            Text(
-                              pendingCount > 0
-                                  ? '$pendingCount pending review · ${reports.length} total'
-                                  : '${reports.length} total, none pending',
-                              style: AppTypography.bodySoft(fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, color: AppColors.inkSoft),
-                    ],
-                  ),
                 ),
               );
             },
           ),
+          const SizedBox(height: 26),
 
+          Text('PATROL AREA', style: LuxType.eyebrow(fontSize: 10.5)),
+          const SizedBox(height: 10),
+          Container(
+            decoration: BoxDecoration(
+              color: LuxColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: LuxColors.divider),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: 140,
+                  child: _locatingSelf
+                      ? const ColoredBox(color: LuxColors.surfaceMuted, child: Center(child: CircularProgressIndicator()))
+                      : _currentPosition == null
+                          ? ColoredBox(
+                              color: LuxColors.surfaceMuted,
+                              child: Center(child: Text('Location unavailable', style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft))),
+                            )
+                          : LiveMap(
+                              selfLat: _currentPosition!.latitude,
+                              selfLng: _currentPosition!.longitude,
+                              selfLabel: 'You',
+                              showBoundary: true,
+                            ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.shield_outlined, size: 18, color: LuxColors.red),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${user.barangay} boundary', style: LuxType.heading(fontSize: 14)),
+                            if (_positionUpdatedAt != null)
+                              Text(_relativeTime(_positionUpdatedAt), style: LuxType.eyebrow(fontSize: 9, color: LuxColors.inkSoft, letterSpacing: 0.3)),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 18, color: LuxColors.ink),
+                        tooltip: 'Refresh location',
+                        onPressed: _locatingSelf ? null : _loadCurrentLocation,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 26),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('RECENT REPORTS', style: LuxType.eyebrow(fontSize: 10.5)),
+              GestureDetector(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => TanodDashboardScreen(user: user)),
+                ),
+                child: Text('SEE ALL', style: LuxType.eyebrow(fontSize: 10.5, color: LuxColors.red)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          StreamBuilder<List<ReportModel>>(
+            stream: _reportsStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final reports = (snapshot.data ?? []).take(3).toList();
+              if (reports.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                  child: Text('No reports yet. Resident reports will show up here.', style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft)),
+                );
+              }
+              return Container(
+                decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    for (int i = 0; i < reports.length; i++)
+                      InkWell(
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => TanodReportReviewScreen(reportId: reports[i].id, user: user)),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: i == reports.length - 1
+                              ? null
+                              : const BoxDecoration(border: Border(bottom: BorderSide(color: LuxColors.divider))),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(reports[i].type, style: LuxType.heading(fontSize: 13.5)),
+                                    const SizedBox(height: 2),
+                                    Text(_formatReportDate(reports[i].createdAt), style: LuxType.eyebrow(fontSize: 9, color: LuxColors.inkSoft, letterSpacing: 0.3)),
+                                  ],
+                                ),
+                              ),
+                              _StatusPill(meta: _statusMeta(reports[i].status)),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
   }
 }
 
-/// "Distress UI" — a hard-to-miss, full-width red banner that takes over
-/// the top of Home the instant a brand-new SOS comes in, regardless of
-/// which screen the tanod was previously looking at (Home is always
-/// underneath). This is deliberately the loudest thing on the screen —
-/// pulsing isn't used since a color/motion effect can still be missed;
-/// pairing this with the sound+vibration from AlarmSoundService (see
-/// _checkForNewAlerts above) covers sight, sound, and touch at once.
 class _DistressBanner extends StatelessWidget {
   const _DistressBanner({
     required this.alert,
@@ -324,25 +418,26 @@ class _DistressBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.urgent,
-      borderRadius: BorderRadius.circular(16),
+      color: LuxColors.red,
+      borderRadius: BorderRadius.circular(18),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         onTap: onView,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 22),
+                  const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
-                  Text(
-                    'NEW SOS — RESPOND NOW',
-                    style: AppTypography.mono(fontSize: 11, color: Colors.white, letterSpacing: 0.6),
+                  Expanded(
+                    child: Text(
+                      'NEW SOS — RESPOND NOW',
+                      style: LuxType.eyebrow(fontSize: 10.5, color: Colors.white),
+                    ),
                   ),
-                  const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white70, size: 18),
                     tooltip: 'Dismiss',
@@ -357,11 +452,11 @@ class _DistressBanner extends StatelessWidget {
                 future: repository.fetchUserName(alert.residentId),
                 builder: (context, snap) => Text(
                   snap.data ?? 'Resident',
-                  style: AppTypography.display(fontSize: 20, color: Colors.white),
+                  style: LuxType.hero(fontSize: 22, color: Colors.white),
                 ),
               ),
               const SizedBox(height: 2),
-              Text(alert.emergencyType.label, style: AppTypography.body(fontSize: 13, color: Colors.white.withOpacity(0.9))),
+              Text(alert.emergencyType.label, style: LuxType.body(fontSize: 13, color: Colors.white.withOpacity(0.9))),
               const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,
@@ -369,17 +464,143 @@ class _DistressBanner extends StatelessWidget {
                   onPressed: onView,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
-                    foregroundColor: AppColors.urgent,
+                    foregroundColor: LuxColors.red,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
+                    elevation: 0,
                   ),
-                  child: Text('VIEW & RESPOND', style: AppTypography.display(fontSize: 13, color: AppColors.urgent)),
+                  child: Text('VIEW & RESPOND', style: LuxType.heading(fontSize: 13, color: LuxColors.red)),
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SosCard extends StatelessWidget {
+  const _SosCard({required this.urgent, required this.subtitle, required this.onTap});
+
+  final bool urgent;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: urgent ? LuxColors.red : LuxColors.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: urgent ? null : BoxDecoration(borderRadius: BorderRadius.circular(18), border: Border.all(color: LuxColors.divider)),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: urgent ? Colors.white.withOpacity(0.18) : LuxColors.surfaceMuted,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  color: urgent ? Colors.white : LuxColors.red,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('SOS Alerts', style: LuxType.heading(fontSize: 15, color: urgent ? Colors.white : LuxColors.ink)),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: LuxType.body(fontSize: 11.5, color: urgent ? Colors.white70 : LuxColors.inkSoft)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: urgent ? Colors.white : LuxColors.inkSoft),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServiceRow extends StatelessWidget {
+  const _ServiceRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.isLast = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      child: Material(
+        color: LuxColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: LuxColors.divider)),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(color: LuxColors.surfaceMuted, shape: BoxShape.circle),
+                  child: Icon(icon, size: 19, color: LuxColors.red),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: LuxType.heading(fontSize: 14)),
+                      const SizedBox(height: 2),
+                      Text(subtitle, style: LuxType.body(fontSize: 11, color: LuxColors.inkSoft)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, size: 18, color: LuxColors.inkSoft),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.meta});
+
+  final ({String label, Color color}) meta;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(color: meta.color.withOpacity(0.12), borderRadius: BorderRadius.circular(20)),
+      child: Text(meta.label, style: LuxType.eyebrow(fontSize: 9, color: meta.color, letterSpacing: 0.4)),
     );
   }
 }

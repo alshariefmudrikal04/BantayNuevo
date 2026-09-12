@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -23,6 +24,19 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  // Philippine mobile numbers: 11 digits, always starting with 09 in local
+  // format (e.g. 09171234567). Enforced here — rather than left free-form —
+  // because this exact number is what receives the approve/reject SMS from
+  // AdminRepository once a Barangay Admin reviews the account, so an
+  // invalid or mistyped one silently breaks that notification.
+  static final RegExp _phRegex = RegExp(r'^09\d{9}$');
+
+  // A reasonably strict but standard email shape check. Same reasoning as
+  // the phone regex: this address is where the approve/reject email
+  // actually goes (AdminRepository._sendVerificationEmail), so it's worth
+  // catching an obviously-malformed one before it ever reaches Firebase Auth.
+  static final RegExp _emailRegex = RegExp(r'^[\w.+-]+@[\w-]+\.[A-Za-z]{2,}$');
+
   final _authRepository = AuthRepository();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -85,6 +99,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = 'Both your ID photo and a face photo are required.');
       return;
     }
+    final email = _emailController.text.trim();
+    if (!_emailRegex.hasMatch(email)) {
+      setState(() => _error = 'Enter a valid email address — this is where your approval notice goes.');
+      return;
+    }
+    final phone = _phoneController.text.trim();
+    if (!_phRegex.hasMatch(phone)) {
+      setState(() => _error = 'Enter a valid 11-digit mobile number, e.g. 09171234567 — this is where your approval SMS goes.');
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -92,8 +116,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       await _authRepository.register(
         name: _nameController.text.trim(),
-        email: _emailController.text.trim(),
-        phone: _phoneController.text.trim(),
+        email: email,
+        phone: phone,
         purok: _purokController.text.trim(),
         password: _passwordController.text,
         idPhotoBytes: idBytes,
@@ -111,7 +135,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } catch (e) {
       setState(() {
-        _error = 'Could not create account: $e';
+        _error = AuthRepository.friendlyError(e);
         _loading = false;
       });
     }
@@ -119,10 +143,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Resident sign-up')),
-      body: SafeArea(
+    return PopScope(
+      // Blocks the back gesture/button while a submission is in flight.
+      // Previously, backing out mid-upload could leave a Firebase Auth
+      // account created with no matching Firestore user doc (registration
+      // creates the Auth account first, then uploads two photos, then
+      // writes Firestore last) — AuthRepository.register now rolls that
+      // orphaned account back on failure, but the safest fix is simply not
+      // letting the resident navigate away mid-submit in the first place,
+      // since a slow connection could otherwise make it look "stuck" and
+      // invite exactly that back-out.
+      canPop: !_loading,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please wait for this to finish.')),
+        );
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        appBar: AppBar(title: const Text('Resident sign-up')),
+        body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.xl),
           child: Column(
@@ -139,7 +180,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(height: 12),
               _Field(label: 'Email', controller: _emailController, keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 12),
-              _Field(label: 'Phone number', controller: _phoneController, keyboardType: TextInputType.phone),
+              _Field(
+                label: 'Phone number',
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                hint: '09171234567',
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(11),
+                ],
+              ),
               const SizedBox(height: 12),
               _Field(label: 'Purok', controller: _purokController),
               const SizedBox(height: 12),
@@ -171,6 +221,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );
@@ -233,12 +284,21 @@ class _PhotoPicker extends StatelessWidget {
 }
 
 class _Field extends StatelessWidget {
-  const _Field({required this.label, required this.controller, this.obscure = false, this.keyboardType});
+  const _Field({
+    required this.label,
+    required this.controller,
+    this.obscure = false,
+    this.keyboardType,
+    this.inputFormatters,
+    this.hint,
+  });
 
   final String label;
   final TextEditingController controller;
   final bool obscure;
   final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
@@ -251,6 +311,8 @@ class _Field extends StatelessWidget {
           controller: controller,
           obscureText: obscure,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
+          decoration: InputDecoration(hintText: hint),
         ),
       ],
     );
