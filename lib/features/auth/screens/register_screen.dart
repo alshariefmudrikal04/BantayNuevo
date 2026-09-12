@@ -4,10 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_button.dart';
+import '../../../core/theme/lux_theme.dart';
+import '../../../core/widgets/lux_field.dart';
+import '../../../core/widgets/lux_button.dart';
 import '../data/auth_repository.dart';
 
 /// Resident sign-up — the only self-registration path left in the app
@@ -16,6 +15,12 @@ import '../data/auth_repository.dart';
 /// reviewed by a Barangay Admin before the account can actually be used —
 /// see VerificationStatus on UserModel and VerificationPendingScreen,
 /// which is what a newly-registered resident lands on right after this.
+///
+/// Matches login_screen.dart's actual component vocabulary (LuxField,
+/// LuxButton, the eyebrow+hero greeting) rather than the separate old
+/// AppColors/AppTypography/AppButton this screen used to run on — that
+/// mismatch was the biggest visual tell that this page wasn't designed
+/// alongside the rest of the app, just generated on its own.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -48,6 +53,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Uint8List? _facePhotoBytes;
   String? _facePhotoName;
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
@@ -145,14 +151,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       // Blocks the back gesture/button while a submission is in flight.
-      // Previously, backing out mid-upload could leave a Firebase Auth
+      // Backing out mid-upload used to be able to leave a Firebase Auth
       // account created with no matching Firestore user doc (registration
       // creates the Auth account first, then uploads two photos, then
       // writes Firestore last) — AuthRepository.register now rolls that
       // orphaned account back on failure, but the safest fix is simply not
-      // letting the resident navigate away mid-submit in the first place,
-      // since a slow connection could otherwise make it look "stuck" and
-      // invite exactly that back-out.
+      // letting the resident navigate away mid-submit in the first place.
       canPop: !_loading,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
@@ -161,73 +165,97 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
       },
       child: Scaffold(
-        backgroundColor: AppColors.bg,
-        appBar: AppBar(title: const Text('Resident sign-up')),
-        body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Create your account', style: AppTypography.display(fontSize: 22)),
-              const SizedBox(height: 4),
-              Text(
-                'A barangay admin verifies every new resident before the account can be used — this keeps SOS access limited to actual residents of the barangay.',
-                style: AppTypography.bodySoft(fontSize: 12.5),
-              ),
-              const SizedBox(height: 24),
-              _Field(label: 'Full name', controller: _nameController),
-              const SizedBox(height: 12),
-              _Field(label: 'Email', controller: _emailController, keyboardType: TextInputType.emailAddress),
-              const SizedBox(height: 12),
-              _Field(
-                label: 'Phone number',
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                hint: '09171234567',
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(11),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _Field(label: 'Purok', controller: _purokController),
-              const SizedBox(height: 12),
-              _Field(label: 'Password', controller: _passwordController, obscure: true),
-              const SizedBox(height: 20),
-              Text('IDENTITY VERIFICATION', style: AppTypography.mono(fontSize: 10.5, letterSpacing: 0.4)),
-              const SizedBox(height: 8),
-              _PhotoPicker(
-                label: 'Valid ID',
-                subtitle: 'A photo or scan of any government or barangay-issued ID',
-                bytes: _idPhotoBytes,
-                onTap: _captureId,
-              ),
-              const SizedBox(height: 10),
-              _PhotoPicker(
-                label: 'Face photo',
-                subtitle: 'A live selfie, taken now, for the admin to match against your ID',
-                bytes: _facePhotoBytes,
-                onTap: _captureFace,
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: AppTypography.mono(fontSize: 11, color: AppColors.urgent)),
-              ],
-              const SizedBox(height: 20),
-              AppButton(
-                label: _loading ? 'Creating account...' : 'Submit for verification',
-                onPressed: _loading ? null : _submit,
-              ),
-            ],
-          ),
+        backgroundColor: LuxColors.bg,
+        appBar: AppBar(
+          backgroundColor: LuxColors.bg,
+          elevation: 0,
+          foregroundColor: LuxColors.black,
         ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('SIGN UP', style: LuxType.eyebrow(fontSize: 11)),
+                const SizedBox(height: 2),
+                Text('Create your account', style: LuxType.hero(fontSize: 28)),
+                const SizedBox(height: 8),
+                Text(
+                  'A barangay admin verifies every new resident before the account can be used.',
+                  style: LuxType.body(fontSize: 12.5, color: LuxColors.inkSoft),
+                ),
+                const SizedBox(height: 24),
+                LuxField(label: 'Full name', controller: _nameController),
+                const SizedBox(height: 12),
+                LuxField(label: 'Email', controller: _emailController, keyboardType: TextInputType.emailAddress),
+                const SizedBox(height: 12),
+                LuxField(
+                  label: 'Phone number',
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  hintText: '09171234567',
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(11),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                LuxField(label: 'Purok', controller: _purokController),
+                const SizedBox(height: 12),
+                LuxField(
+                  label: 'Password',
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      size: 19,
+                      color: LuxColors.inkSoft,
+                    ),
+                    tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Text('IDENTITY VERIFICATION', style: LuxType.eyebrow(fontSize: 10.5)),
+                const SizedBox(height: 10),
+                _PhotoPicker(
+                  label: 'Valid ID',
+                  subtitle: 'A photo or scan of any government or barangay-issued ID',
+                  bytes: _idPhotoBytes,
+                  onTap: _captureId,
+                ),
+                const SizedBox(height: 10),
+                _PhotoPicker(
+                  label: 'Face photo',
+                  subtitle: 'A live selfie, taken now, for the admin to match against your ID',
+                  bytes: _facePhotoBytes,
+                  onTap: _captureFace,
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 14),
+                  Text(_error!, style: LuxType.body(fontSize: 12, color: LuxColors.red)),
+                ],
+                const SizedBox(height: 22),
+                LuxButton(
+                  label: _loading ? 'Creating account...' : 'Submit for verification',
+                  loading: _loading,
+                  onTap: _loading ? null : _submit,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
+/// Same white-surface / rounded-14 / hairline-border shape as LuxField and
+/// resident_home_screen.dart's own cards — the photo-picker row sits in
+/// that same family instead of the separate teal-accented panel style it
+/// used to have on the old palette.
 class _PhotoPicker extends StatelessWidget {
   const _PhotoPicker({required this.label, required this.subtitle, required this.bytes, required this.onTap});
 
@@ -238,83 +266,54 @@ class _PhotoPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: bytes != null ? AppColors.teal : AppColors.line),
-        ),
-        child: Row(
-          children: [
-            if (bytes != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                // Image.memory, not Image.file — a dart:io File-based
-                // preview silently fails on Flutter Web (no real
-                // filesystem there); raw bytes render identically on
-                // every platform.
-                child: Image.memory(bytes!, width: 46, height: 46, fit: BoxFit.cover),
-              )
-            else
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(color: AppColors.line.withOpacity(0.5), borderRadius: BorderRadius.circular(8)),
-                child: const Icon(Icons.add_a_photo_outlined, size: 18, color: AppColors.inkSoft),
+    return Material(
+      color: LuxColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: bytes != null ? LuxColors.success : LuxColors.divider),
+          ),
+          child: Row(
+            children: [
+              if (bytes != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  // Image.memory, not Image.file — a dart:io File-based
+                  // preview silently fails on Flutter Web (no real
+                  // filesystem there); raw bytes render identically on
+                  // every platform.
+                  child: Image.memory(bytes!, width: 46, height: 46, fit: BoxFit.cover),
+                )
+              else
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: const BoxDecoration(color: LuxColors.surfaceMuted, shape: BoxShape.circle),
+                  child: const Icon(Icons.add_a_photo_outlined, size: 18, color: LuxColors.inkSoft),
+                ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: LuxType.heading(fontSize: 13.5)),
+                    const SizedBox(height: 2),
+                    Text(
+                      bytes != null ? 'Selected — tap to retake' : subtitle,
+                      style: LuxType.body(fontSize: 10.5, color: LuxColors.inkSoft),
+                    ),
+                  ],
+                ),
               ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label, style: AppTypography.body(fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text(bytes != null ? 'Selected — tap to retake' : subtitle, style: AppTypography.bodySoft(fontSize: 10.5)),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    );
-  }
-}
-
-class _Field extends StatelessWidget {
-  const _Field({
-    required this.label,
-    required this.controller,
-    this.obscure = false,
-    this.keyboardType,
-    this.inputFormatters,
-    this.hint,
-  });
-
-  final String label;
-  final TextEditingController controller;
-  final bool obscure;
-  final TextInputType? keyboardType;
-  final List<TextInputFormatter>? inputFormatters;
-  final String? hint;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label.toUpperCase(), style: AppTypography.mono(fontSize: 10.5, letterSpacing: 0.4)),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          obscureText: obscure,
-          keyboardType: keyboardType,
-          inputFormatters: inputFormatters,
-          decoration: InputDecoration(hintText: hint),
-        ),
-      ],
     );
   }
 }
