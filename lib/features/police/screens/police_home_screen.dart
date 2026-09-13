@@ -3,10 +3,7 @@ import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
 import '../../../models/report_model.dart';
 import '../../../models/notification_model.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_card.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../data/police_repository.dart';
 import '../../resident/data/notification_repository.dart';
 import '../../auth/data/auth_repository.dart';
@@ -14,10 +11,10 @@ import 'police_alerts_screen.dart';
 import 'police_reports_screen.dart';
 import 'police_notifications_screen.dart';
 
-/// Police landing screen — mirrors TanodHomeScreen's layout exactly
-/// (SOS card + reports card + notification bell), but every count here is
-/// scoped to "assigned to me" rather than "everything open" — see
-/// PoliceRepository's doc comment for why.
+/// Police landing screen — reskinned to match the resident side's
+/// "luxury minimal" look (see lux_theme.dart's doc comment on the staged
+/// rollout: resident first, then tanod/police/admin). All business logic
+/// (streams, counts) is unchanged from before — presentation-only rewrite.
 class PoliceHomeScreen extends StatefulWidget {
   const PoliceHomeScreen({super.key, required this.user});
 
@@ -40,16 +37,11 @@ class _PoliceHomeScreenState extends State<PoliceHomeScreen> {
   Widget build(BuildContext context) {
     final user = widget.user;
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: LuxColors.bg,
       appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
         automaticallyImplyLeading: false,
-        title: Row(
-          children: [
-            Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.teal, shape: BoxShape.circle)),
-            const SizedBox(width: 8),
-            const Text('Bantay Nuevo'),
-          ],
-        ),
         actions: [
           StreamBuilder<List<NotificationModel>>(
             stream: _notificationsStream,
@@ -59,7 +51,7 @@ class _PoliceHomeScreenState extends State<PoliceHomeScreen> {
                 clipBehavior: Clip.none,
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.notifications_none, size: 22),
+                    icon: const Icon(Icons.notifications_none, size: 22, color: LuxColors.black),
                     tooltip: 'Notifications',
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => PoliceNotificationsScreen(user: user)),
@@ -69,100 +61,72 @@ class _PoliceHomeScreenState extends State<PoliceHomeScreen> {
                     Positioned(
                       right: 8,
                       top: 8,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(color: AppColors.urgent, shape: BoxShape.circle),
-                      ),
+                      child: Container(width: 8, height: 8, decoration: const BoxDecoration(color: LuxColors.red, shape: BoxShape.circle)),
                     ),
                 ],
               );
             },
           ),
           IconButton(
-            icon: const Icon(Icons.logout, size: 20),
+            icon: const Icon(Icons.logout, size: 20, color: LuxColors.black),
             tooltip: 'Log out',
             onPressed: _authRepository.logout,
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: const EdgeInsets.all(20),
         children: [
-          AppCard(
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: AppColors.tealLight,
-                  child: Text(
-                    user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-                    style: AppTypography.display(fontSize: 15, color: AppColors.teal),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Hi, ${user.name}', style: AppTypography.display(fontSize: 16)),
-                      Text('Police Responder · ${user.barangay}', style: AppTypography.bodySoft(fontSize: 11.5)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          Text('WELCOME BACK,', style: LuxType.eyebrow(fontSize: 11)),
+          const SizedBox(height: 2),
+          Text(user.name.trim().isEmpty ? 'OFFICER' : user.name.trim().split(' ').first.toUpperCase(), style: LuxType.hero(fontSize: 36)),
+          const SizedBox(height: 2),
+          Text('POLICE RESPONDER · ${user.barangay.toUpperCase()}', style: LuxType.eyebrow(fontSize: 10, color: LuxColors.inkSoft)),
+          const SizedBox(height: 24),
 
-          const SizedBox(height: 16),
+          Text('ASSIGNED TO YOU', style: LuxType.eyebrow(fontSize: 10.5)),
+          const SizedBox(height: 10),
           StreamBuilder<List<SosAlertModel>>(
             stream: _alertsStream,
             builder: (context, snapshot) {
               final alerts = snapshot.data ?? [];
               final active = alerts.where((a) => a.status == SosStatus.responded || a.status == SosStatus.arrived).length;
 
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => PoliceAlertsScreen(user: user)),
-                ),
-                child: AppCard(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: active > 0 ? AppColors.urgentLight : AppColors.tealLight,
-                          borderRadius: BorderRadius.circular(11),
+              return Material(
+                color: active > 0 ? LuxColors.red : LuxColors.surface,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PoliceAlertsScreen(user: user))),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), border: active > 0 ? null : Border.all(color: LuxColors.divider)),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: 28, color: active > 0 ? Colors.white : LuxColors.red),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('SOS ALERTS', style: LuxType.eyebrow(fontSize: 10, color: active > 0 ? Colors.white70 : LuxColors.inkSoft)),
+                              const SizedBox(height: 2),
+                              Text(
+                                active > 0 ? '$active active' : 'Nothing assigned',
+                                style: LuxType.hero(fontSize: 20, color: active > 0 ? Colors.white : LuxColors.ink),
+                              ),
+                            ],
+                          ),
                         ),
-                        alignment: Alignment.center,
-                        child: Icon(
-                          Icons.warning_amber_rounded,
-                          color: active > 0 ? AppColors.urgent : AppColors.teal,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Assigned SOS alerts', style: AppTypography.display(fontSize: 14)),
-                            Text(
-                              active > 0 ? '$active you\'re currently handling' : 'Nothing assigned to you right now',
-                              style: AppTypography.bodySoft(fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, color: AppColors.inkSoft),
-                    ],
+                        Icon(Icons.chevron_right, color: active > 0 ? Colors.white : LuxColors.inkSoft),
+                      ],
+                    ),
                   ),
                 ),
               );
             },
           ),
-
           const SizedBox(height: 10),
           StreamBuilder<List<ReportModel>>(
             stream: _reportsStream,
@@ -170,42 +134,40 @@ class _PoliceHomeScreenState extends State<PoliceHomeScreen> {
               final reports = snapshot.data ?? [];
               final pendingCount = reports.where((r) => r.status != ReportStatus.resolved).length;
 
-              return InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => PoliceReportsScreen(user: user)),
-                ),
-                child: AppCard(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: pendingCount > 0 ? AppColors.amberLight : AppColors.tealLight,
-                          borderRadius: BorderRadius.circular(11),
+              return Material(
+                color: LuxColors.surface,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PoliceReportsScreen(user: user))),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: const BoxDecoration(color: LuxColors.surfaceMuted, shape: BoxShape.circle),
+                          alignment: Alignment.center,
+                          child: Icon(Icons.assignment_outlined, size: 19, color: LuxColors.red),
                         ),
-                        alignment: Alignment.center,
-                        child: Icon(
-                          Icons.assignment_outlined,
-                          color: pendingCount > 0 ? AppColors.amber : AppColors.teal,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Assigned reports', style: LuxType.heading(fontSize: 14)),
+                              Text(
+                                '${reports.length} total${pendingCount > 0 ? ' · $pendingCount open' : ''}',
+                                style: LuxType.body(fontSize: 11, color: LuxColors.inkSoft),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Assigned reports', style: AppTypography.display(fontSize: 14)),
-                            Text(
-                              '${reports.length} total${pendingCount > 0 ? ' · $pendingCount open' : ''}',
-                              style: AppTypography.bodySoft(fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, color: AppColors.inkSoft),
-                    ],
+                        const Icon(Icons.chevron_right, size: 18, color: LuxColors.inkSoft),
+                      ],
+                    ),
                   ),
                 ),
               );

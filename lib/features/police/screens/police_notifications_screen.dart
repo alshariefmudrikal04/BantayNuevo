@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../models/notification_model.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/list_item_tile.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../../resident/data/notification_repository.dart';
 import 'police_report_review_screen.dart';
 import 'police_alert_detail_screen.dart';
 
-/// Mirrors TanodNotificationsScreen — same NotificationRepository,
-/// same recipientId-based stream, works identically for a police uid.
+/// Mirrors TanodNotificationsScreen — same NotificationRepository, same
+/// recipientId-based stream, works identically for a police uid.
+/// Reskinned to match the resident side's look.
 class PoliceNotificationsScreen extends StatefulWidget {
   const PoliceNotificationsScreen({super.key, required this.user});
 
@@ -52,8 +49,12 @@ class _PoliceNotificationsScreenState extends State<PoliceNotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Notifications')),
+      backgroundColor: LuxColors.bg,
+      appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
+        title: Text('NOTIFICATIONS', style: LuxType.eyebrow(fontSize: 11, color: LuxColors.ink)),
+      ),
       body: StreamBuilder<List<NotificationModel>>(
         stream: _notificationsStream,
         builder: (context, snapshot) {
@@ -63,36 +64,58 @@ class _PoliceNotificationsScreenState extends State<PoliceNotificationsScreen> {
           final notifications = snapshot.data ?? [];
           if (notifications.isEmpty) {
             return Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: AppCard(
+              padding: const EdgeInsets.all(20),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
                 child: Text(
                   "No notifications yet. You'll see updates here when a barangay admin assigns you a case.",
-                  style: AppTypography.bodySoft(fontSize: 12),
+                  style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft),
                 ),
               ),
             );
           }
           return ListView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            padding: const EdgeInsets.all(20),
             children: [
-              AppCard(
-                padding: const EdgeInsets.symmetric(horizontal: 13),
+              Container(
+                decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
                     for (int i = 0; i < notifications.length; i++)
-                      ListItemTile(
-                        title: notifications[i].message,
-                        subtitle: _relativeTime(notifications[i].createdAt),
-                        trailing: notifications[i].read
-                            ? null
-                            : Container(
-                                width: 7,
-                                height: 7,
-                                margin: const EdgeInsets.only(left: 4),
-                                decoration: const BoxDecoration(color: AppColors.urgent, shape: BoxShape.circle),
-                              ),
-                        isLast: i == notifications.length - 1,
+                      InkWell(
                         onTap: () => _handleTap(context, notifications[i]),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: i == notifications.length - 1
+                              ? null
+                              : const BoxDecoration(border: Border(bottom: BorderSide(color: LuxColors.divider))),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(notifications[i].message, style: LuxType.body(fontSize: 12.5)),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      _relativeTime(notifications[i].createdAt),
+                                      style: LuxType.eyebrow(fontSize: 9, color: LuxColors.inkSoft, letterSpacing: 0.3),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (!notifications[i].read)
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  margin: const EdgeInsets.only(left: 8),
+                                  decoration: const BoxDecoration(color: LuxColors.red, shape: BoxShape.circle),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                   ],
                 ),

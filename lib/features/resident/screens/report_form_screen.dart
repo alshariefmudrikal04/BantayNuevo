@@ -4,17 +4,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../models/user_model.dart';
 import '../../../core/theme/lux_theme.dart';
-import 'sos_screen.dart';
-import 'report_detail_screen.dart';
 import '../data/report_repository.dart';
+import 'report_detail_screen.dart';
+import 'sos_screen.dart';
 import '../../../core/utils/geofence.dart';
-
-const _incidentTypes = [
-  'Physical injury / maltreatment',
-  'Threats',
-  'Abuse involving a minor',
-  'Other',
-];
 
 class ReportFormScreen extends StatefulWidget {
   const ReportFormScreen({super.key, required this.user});
@@ -29,13 +22,20 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
   final _reportRepository = ReportRepository();
   final _descriptionController = TextEditingController();
 
-  String _type = _incidentTypes.first;
-  final List<PickedEvidence> _evidence = [];
+  static const _incidentTypes = [
+    'Physical Violence',
+    'Domestic Violence',
+    'Threats / Harassment',
+    'Abuse Involving a Minor',
+    'Property Damage',
+    'Other',
+  ];
 
+  String _type = _incidentTypes.first;
   Position? _position;
   bool _loadingLocation = true;
   String? _locationError;
-
+  final List<PickedEvidence> _evidence = [];
   bool _submitting = false;
   String? _submitError;
 
@@ -49,6 +49,14 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
   void dispose() {
     _descriptionController.dispose();
     super.dispose();
+  }
+
+  String get _locationDisplay {
+    if (_loadingLocation) return 'Getting your location...';
+    if (_position != null) {
+      return '${_position!.latitude.toStringAsFixed(5)}, ${_position!.longitude.toStringAsFixed(5)}';
+    }
+    return _locationError ?? 'Location unavailable';
   }
 
   Future<void> _captureLocation() async {
@@ -139,14 +147,53 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
     }
   }
 
+  /// Whether the resident's current position falls outside the barangay
+  /// boundary — used to trigger the confirm-to-proceed dialog below, not
+  /// to block outright. Skipped entirely if _position is null (GPS
+  /// unavailable) since that's already a separate, pre-existing warning
+  /// (_locationError below) — no need to double-punish a resident whose
+  /// GPS just failed to get a fix.
+  bool _isOutsideBoundary() {
+    if (_position == null) return false;
+    final result = checkBarangayBoundary(_position!.latitude, _position!.longitude);
+    return !result.withinBoundary;
+  }
+
+  /// Was a hard block ("this app only covers Camino Nuevo, can't submit")
+  /// — now a confirm-to-proceed warning instead, matching how SOS already
+  /// treats being outside the boundary (sos_screen.dart sends anyway with
+  /// just a warning). A report from outside the barangay may not get a
+  /// Tanod/police response as fast (or at all, if it's genuinely outside
+  /// anyone's jurisdiction here), but the resident should get to decide
+  /// that for themselves rather than being flatly turned away — e.g.
+  /// witnessing something while traveling, or GPS drift near the edge.
+  Future<bool> _showOutOfBoundsDialog() async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Outside Camino Nuevo'),
+        content: const Text(
+          'Your current location appears to be outside Barangay Camino Nuevo. Tanod here may not be the '
+          "right responders for this location, and response may be slower or unavailable. You can still "
+          'submit if you want this on record — do you want to continue?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Submit anyway')),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
   Future<void> _submit() async {
     if (_descriptionController.text.trim().isEmpty) {
       setState(() => _submitError = 'Please describe what happened.');
       return;
     }
     if (_isOutsideBoundary()) {
-      await _showOutOfBoundsDialog();
-      return;
+      final proceed = await _showOutOfBoundsDialog();
+      if (!proceed) return;
     }
     setState(() {
       _submitting = true;
@@ -176,42 +223,6 @@ class _ReportFormScreenState extends State<ReportFormScreen> {
         _submitError = 'Could not submit report: $e';
       });
     }
-  }
-
-  /// Hard block for reports — per project scope, this app only covers
-  /// Barangay Camino Nuevo. Skipped entirely if _position is null (GPS
-  /// unavailable) since that's already a separate, pre-existing warning
-  /// (_locationError below) — no need to double-punish a resident whose
-  /// GPS just failed to get a fix.
-  bool _isOutsideBoundary() {
-    if (_position == null) return false;
-    final result = checkBarangayBoundary(_position!.latitude, _position!.longitude);
-    return !result.withinBoundary;
-  }
-
-  Future<void> _showOutOfBoundsDialog() {
-    return showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Outside service area'),
-        content: const Text(
-          "Bantay Nuevo currently only covers Barangay Camino Nuevo. Your current location "
-          "appears to be outside that area, so this report can't be submitted from here. "
-          'Try again once you\'re back within the barangay.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK')),
-        ],
-      ),
-    );
-  }
-
-  String get _locationDisplay {
-    if (_loadingLocation) return 'Capturing your location...';
-    if (_position != null) {
-      return '${_position!.latitude.toStringAsFixed(5)}, ${_position!.longitude.toStringAsFixed(5)} · Purok ${widget.user.purok}';
-    }
-    return _locationError ?? 'Location unavailable';
   }
 
   @override

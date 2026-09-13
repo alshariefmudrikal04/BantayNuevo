@@ -1,19 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../../models/user_model.dart';
 import '../../../models/report_model.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/section_title.dart';
-import '../../../core/widgets/list_item_tile.dart';
-import '../../../core/widgets/status_badge.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../data/police_repository.dart';
 import 'police_report_review_screen.dart';
 
-/// Mirrors TanodDashboardScreen — every incident report currently
-/// assigned to this police officer, with the same pending/in-progress/
-/// resolved count cards.
+/// Every incident report assigned to this police officer, with
+/// pending/in-progress/resolved count cards. Reskinned to match the
+/// resident side's look.
 class PoliceReportsScreen extends StatefulWidget {
   const PoliceReportsScreen({super.key, required this.user});
 
@@ -27,12 +21,6 @@ class _PoliceReportsScreenState extends State<PoliceReportsScreen> {
   final _repository = PoliceRepository();
   late final Stream<List<ReportModel>> _reportsStream = _repository.streamMyReports(widget.user.uid);
 
-  AppStatus _toAppStatus(ReportStatus s) => switch (s) {
-        ReportStatus.pending => AppStatus.pending,
-        ReportStatus.inProgress => AppStatus.progress,
-        ReportStatus.resolved => AppStatus.resolved,
-      };
-
   String _formatDate(DateTime? date) {
     if (date == null) return 'just now';
     return '${date.month}/${date.day}/${date.year}';
@@ -41,8 +29,12 @@ class _PoliceReportsScreenState extends State<PoliceReportsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Assigned reports')),
+      backgroundColor: LuxColors.bg,
+      appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
+        title: Text('ASSIGNED REPORTS', style: LuxType.eyebrow(fontSize: 11, color: LuxColors.ink)),
+      ),
       body: StreamBuilder<List<ReportModel>>(
         stream: _reportsStream,
         builder: (context, snapshot) {
@@ -55,34 +47,59 @@ class _PoliceReportsScreenState extends State<PoliceReportsScreen> {
           final resolved = reports.where((r) => r.status == ReportStatus.resolved).length;
 
           return ListView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            padding: const EdgeInsets.all(20),
             children: [
               Row(
                 children: [
-                  Expanded(child: _CountCard(label: 'Pending', count: pending, color: AppColors.amber)),
+                  Expanded(child: _CountCard(label: 'PENDING', count: pending, color: LuxColors.amber)),
                   const SizedBox(width: 8),
-                  Expanded(child: _CountCard(label: 'In progress', count: inProgress, color: AppColors.teal)),
+                  Expanded(child: _CountCard(label: 'IN PROGRESS', count: inProgress, color: LuxColors.black)),
                   const SizedBox(width: 8),
-                  Expanded(child: _CountCard(label: 'Resolved', count: resolved, color: AppColors.resolvedFg)),
+                  Expanded(child: _CountCard(label: 'RESOLVED', count: resolved, color: LuxColors.success)),
                 ],
               ),
-              const SectionTitle('Assigned to you'),
+              const SizedBox(height: 24),
+              Text('ASSIGNED TO YOU', style: LuxType.eyebrow(fontSize: 10.5)),
+              const SizedBox(height: 8),
               if (reports.isEmpty)
-                AppCard(child: Text('No reports assigned to you yet.', style: AppTypography.bodySoft(fontSize: 12)))
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                  child: Text('No reports assigned to you yet.', style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft)),
+                )
               else
-                AppCard(
-                  padding: const EdgeInsets.symmetric(horizontal: 13),
+                Container(
+                  decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                  clipBehavior: Clip.antiAlias,
                   child: Column(
                     children: [
                       for (int i = 0; i < reports.length; i++)
-                        ListItemTile(
-                          title: reports[i].type,
-                          subtitle: '${reports[i].id} · ${_formatDate(reports[i].createdAt)}',
-                          trailing: StatusBadge(status: _toAppStatus(reports[i].status)),
-                          isLast: i == reports.length - 1,
+                        InkWell(
                           onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => PoliceReportReviewScreen(reportId: reports[i].id, user: widget.user),
+                            MaterialPageRoute(builder: (_) => PoliceReportReviewScreen(reportId: reports[i].id, user: widget.user)),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: i == reports.length - 1
+                                ? null
+                                : const BoxDecoration(border: Border(bottom: BorderSide(color: LuxColors.divider))),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(reports[i].type, style: LuxType.heading(fontSize: 14)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${reports[i].id} · ${_formatDate(reports[i].createdAt)}',
+                                        style: LuxType.eyebrow(fontSize: 9, color: LuxColors.inkSoft, letterSpacing: 0.2),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                LuxStatusPill(status: reports[i].status.value),
+                              ],
                             ),
                           ),
                         ),
@@ -106,13 +123,15 @@ class _CountCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: AppTypography.mono(fontSize: 9.5)),
+          Text(label, style: LuxType.eyebrow(fontSize: 8.5)),
           const SizedBox(height: 4),
-          Text('$count', style: AppTypography.display(fontSize: 20, color: color)),
+          Text('$count', style: LuxType.hero(fontSize: 22, color: color)),
         ],
       ),
     );

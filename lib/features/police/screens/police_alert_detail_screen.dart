@@ -3,19 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../models/user_model.dart';
 import '../../../models/sos_alert_model.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/app_button.dart';
+import '../../../core/theme/lux_theme.dart';
 import '../../../core/widgets/live_map.dart';
 import '../data/police_repository.dart';
 
 /// Mirrors TanodAlertDetailScreen, minus the "Accept" step — a police
-/// officer only ever sees an alert here once already assigned (see
-/// PoliceRepository's doc comment), so every alert reaching this screen
-/// is already theirs to handle. Live location sharing, "arrived", and
-/// "resolved" all work identically to the tanod version.
+/// officer only ever sees an alert here once already assigned. Reskinned
+/// to match the resident side's look.
 class PoliceAlertDetailScreen extends StatefulWidget {
   const PoliceAlertDetailScreen({super.key, required this.alertId, required this.user});
 
@@ -101,15 +95,19 @@ class _PoliceAlertDetailScreenState extends State<PoliceAlertDetailScreen> {
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: isError ? AppColors.urgent : AppColors.navyDeep),
+      SnackBar(content: Text(message), backgroundColor: isError ? LuxColors.red : LuxColors.black),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('SOS alert')),
+      backgroundColor: LuxColors.bg,
+      appBar: AppBar(
+        backgroundColor: LuxColors.bg,
+        elevation: 0,
+        title: Text('SOS ALERT', style: LuxType.eyebrow(fontSize: 11, color: LuxColors.ink)),
+      ),
       body: StreamBuilder<SosAlertModel>(
         stream: _alertStream,
         builder: (context, snapshot) {
@@ -123,53 +121,56 @@ class _PoliceAlertDetailScreenState extends State<PoliceAlertDetailScreen> {
             builder: (context, nameSnap) {
               final residentName = nameSnap.data ?? 'Resident';
               return Padding(
-                padding: const EdgeInsets.all(AppSpacing.lg),
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('SOS from $residentName', style: AppTypography.display(fontSize: 16)),
+                    Text('SOS FROM ${residentName.toUpperCase()}', style: LuxType.hero(fontSize: 22)),
                     const SizedBox(height: 4),
-                    Text(alert.emergencyType.label, style: AppTypography.mono(fontSize: 10.5, color: AppColors.urgent)),
-                    const SizedBox(height: 10),
+                    Text(alert.emergencyType.label, style: LuxType.eyebrow(fontSize: 10.5, color: LuxColors.red)),
+                    const SizedBox(height: 14),
                     if (isClosed)
-                      AppCard(child: Text('This alert was marked resolved.', style: AppTypography.bodySoft(fontSize: 12)))
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
+                        child: Text('This alert was marked resolved.', style: LuxType.body(fontSize: 12, color: LuxColors.inkSoft)),
+                      )
                     else
                       Expanded(
-                        child: LiveMap(
-                          selfLat: _myPosition?.latitude ?? alert.lat ?? 0,
-                          selfLng: _myPosition?.longitude ?? alert.lng ?? 0,
-                          selfLabel: 'You',
-                          otherLat: alert.lat,
-                          otherLng: alert.lng,
-                          otherLabel: residentName,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: LiveMap(
+                            selfLat: _myPosition?.latitude ?? alert.lat ?? 0,
+                            selfLng: _myPosition?.longitude ?? alert.lng ?? 0,
+                            selfLabel: 'You',
+                            otherLat: alert.lat,
+                            otherLng: alert.lng,
+                            otherLabel: residentName,
+                          ),
                         ),
                       ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     if (!isClosed && !hasArrived) ...[
-                      AppButton(
-                        label: _arriving ? 'Updating...' : "I've arrived at the location",
-                        onPressed: _arriving ? null : () => _arrived(alert.residentId),
-                      ),
+                      _LuxButton(label: _arriving ? 'UPDATING...' : "I'VE ARRIVED", filled: true, onTap: _arriving ? null : () => _arrived(alert.residentId)),
                       const SizedBox(height: 8),
-                      AppButton(label: 'Mark resolved', variant: AppButtonVariant.ghost, onPressed: () => _resolve(alert.residentId)),
+                      _LuxButton(label: 'MARK RESOLVED', filled: false, onTap: () => _resolve(alert.residentId)),
                     ],
                     if (!isClosed && hasArrived) ...[
-                      AppCard(
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(color: LuxColors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: LuxColors.divider)),
                         child: Row(
                           children: [
-                            const Icon(Icons.check_circle, size: 16, color: AppColors.resolvedFg),
+                            const Icon(Icons.check_circle, size: 16, color: LuxColors.success),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text(
-                                'You marked yourself as arrived. $residentName has been notified.',
-                                style: AppTypography.bodySoft(fontSize: 11.5),
-                              ),
+                              child: Text('You marked yourself as arrived. $residentName has been notified.', style: LuxType.body(fontSize: 11.5, color: LuxColors.inkSoft)),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 8),
-                      AppButton(label: 'Mark resolved', onPressed: () => _resolve(alert.residentId)),
+                      _LuxButton(label: 'MARK RESOLVED', filled: true, onTap: () => _resolve(alert.residentId)),
                     ],
                   ],
                 ),
@@ -177,6 +178,33 @@ class _PoliceAlertDetailScreenState extends State<PoliceAlertDetailScreen> {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+class _LuxButton extends StatelessWidget {
+  const _LuxButton({required this.label, required this.filled, required this.onTap});
+
+  final String label;
+  final bool filled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: filled ? LuxColors.red : Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: filled ? null : Border.all(color: LuxColors.divider)),
+          child: Text(label, style: LuxType.eyebrow(fontSize: 12, color: filled ? Colors.white : LuxColors.ink, letterSpacing: 0.6)),
+        ),
       ),
     );
   }
