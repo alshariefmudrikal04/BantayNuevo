@@ -205,4 +205,106 @@ class AuthRepository {
   Future<void> sendPasswordResetEmail({required String email}) {
     return _auth.sendPasswordResetEmail(email: email);
   }
+
+  // ---------------------------------------------------------------------
+  // Account settings — edit email / phone / password, delete account.
+  //
+  // Email and password are Firebase Auth credentials, so both require a
+  // recent sign-in before Firebase will let them change (the
+  // 'requires-recent-login' error otherwise) — [_reauthenticate] does that
+  // with the password the resident just typed on the Edit Account screen,
+  // so every save (and the delete flow) goes through it first rather than
+  // surfacing that raw Firebase error.
+  // ---------------------------------------------------------------------
+
+  Future<void> _reauthenticate(String currentPassword) async {
+    final fbUser = _auth.currentUser;
+    if (fbUser == null || fbUser.email == null) {
+      throw StateError('Not signed in.');
+    }
+    final credential = fb_auth.EmailAuthProvider.credential(
+      email: fbUser.email!,
+      password: currentPassword,
+    );
+    await fbUser.reauthenticateWithCredential(credential);
+  }
+
+  /// Updates phone (and, optionally, email/password) for the signed-in
+  /// account in one call, so the Edit Account screen only asks for the
+  /// current password once no matter how many fields actually changed.
+  ///
+  /// [newEmail]/[newPassword] are only applied when non-null — pass null
+  /// for whichever the resident left unchanged. Phone lives purely in the
+  /// Firestore users/{uid} doc (there's no Firebase Phone Auth involved in
+  /// this app — see UserModel doc comment), so it's always written
+  /// alongside whatever Auth changes were requested.
+  ///
+  /// Email changes go through [fb_auth.User.verifyBeforeUpdateEmail]
+  /// rather than the older updateEmail() call: current Firebase projects
+  /// reject updateEmail with 'operation-not-allowed' under email
+  /// enumeration protection, while verifyBeforeUpdateEmail (send a
+  /// confirmation link to the NEW address, only swap once it's clicked)
+  /// works everywhere and is the officially recommended replacement. The
+  /// Firestore email field is updated immediately either way so the app's
+  /// own UI reflects it right away; the resident still needs to click the
+  /// link in their new inbox before that new address can actually be used
+  /// to log in — the confirmation dialog in edit_account_screen.dart says
+  /// so.
+  Future<void> updateAccount({
+    required String currentPassword,
+    String? newEmail,
+    String? newPhone,
+    String? newPassword,
+  }) async {
+    final fbUser = _auth.currentUser;
+    if (fbUser == null) throw StateError('Not signed in.');
+
+    await _reauthenticate(currentPassword);
+
+    var emailVerificationSent = false;
+    if (newEmail != null && newEmail != fbUser.email) {
+      await fbUser.verifyBeforeUpdateEmail(newEmail);
+      emailVerificationSent = true;
+    }
+
+    if (newPassword != null && newPassword.isNotEmpty) {
+      await fbUser.updatePassword(newPassword);
+    }
+
+    final firestoreUpdates = <String, dynamic>{
+      if (newPhone != null) 'phone': newPhone,
+      // Kept in sync for display right away — see doc comment above on why
+      // the Auth side doesn't flip until the confirmation link is clicked.
+      if (newEmail != null) 'email': newEmail,
+    };
+    if (firestoreUpdates.isNotEmpty) {
+      await _users.doc(fbUser.uid).update(firestoreUpdates);
+    }
+
+    return;
+  }
+
+  /// Same reauthentication requirement as above — deleting a Firebase Auth
+  /// account also needs a recent sign-in. The Firestore users/{uid} doc is
+  /// removed first: if that succeeds but the Auth deletion below then
+  /// somehow fails, the resident is left signed in with no profile doc
+  /// (AuthGate treats that as "not registered", which is a safer failure
+  /// mode than the reverse order — an Auth account deleted but a Firestore
+  /// doc left behind that still shows up in admin's user list for someone
+  /// who can no longer log in).
+  ///
+  /// This does not delete the resident's uploaded reports/evidence or ID
+  /// photos (Cloudinary + the reports/sos_alerts collections) — those stay
+  /// for the barangay's own record-keeping, same as a paper case file
+  /// wouldn't be shredded because the person who filed it moved away. A
+  /// real deployment may want to blank the ID/face photos specifically;
+  /// out of scope for now.
+  Future<void> deleteAccount({required String currentPassword}) async {
+    final fbUser = _auth.currentUser;
+    if (fbUser == null) throw StateError('Not signed in.');
+
+    await _reauthenticate(currentPassword);
+    await _users.doc(fbUser.uid).delete();
+    await fbUser.delete();
+  }
 }

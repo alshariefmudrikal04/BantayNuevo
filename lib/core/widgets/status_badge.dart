@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 
-enum AppStatus { pending, progress, resolved, locked }
+enum AppStatus { pending, progress, resolved, locked, rejected }
 
 /// Pill-shaped status badge, mono font, color-coded per AGENTS.md §4.
 /// Used on report list items, report detail, and the evidence vault.
@@ -17,6 +17,7 @@ class StatusBadge extends StatelessWidget {
         AppStatus.progress => (fg: AppColors.teal, bg: AppColors.tealLight, label: 'In progress'),
         AppStatus.resolved => (fg: AppColors.resolvedFg, bg: AppColors.resolvedBg, label: 'Resolved'),
         AppStatus.locked => (fg: AppColors.lock, bg: AppColors.lockLight, label: 'Locked'),
+        AppStatus.rejected => (fg: AppColors.urgent, bg: AppColors.urgentLight, label: 'Rejected'),
       };
 
   @override

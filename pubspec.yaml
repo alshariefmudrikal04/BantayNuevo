@@ -90,6 +90,10 @@ dependencies:
   pdf: ^3.11.1
   printing: ^5.13.4
 
+  # Admin dashboard weekly/monthly report + SOS trend charts (Overview
+  # section) — see lib/features/admin/screens/admin_overview_section.dart.
+  fl_chart: ^0.69.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -5,6 +5,7 @@ import '../../../auth/data/auth_repository.dart';
 import 'emergency_contacts_screen.dart';
 import 'security_screen.dart';
 import 'privacy_screen.dart';
+import 'edit_account_screen.dart';
 import '../my_reports_screen.dart';
 import '../../../resources/screens/resources_screen.dart';
 
@@ -73,6 +74,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 10),
           _SettingsGroup(
             children: [
+              _SettingsRow(
+                icon: Icons.person_outline,
+                title: 'Edit account',
+                subtitle: 'Email, phone number, password',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EditAccountScreen(user: user))),
+              ),
               _SettingsRow(
                 icon: Icons.contacts_outlined,
                 title: 'Emergency contacts',

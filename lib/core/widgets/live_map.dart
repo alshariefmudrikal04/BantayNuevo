@@ -5,7 +5,17 @@ import 'package:latlong2/latlong.dart' as ll;
 import '../theme/app_colors.dart';
 import '../config/barangay_boundary.dart';
 
-/// Free, no-API-key live map — OpenStreetMap tiles via flutter_map.
+/// Free, no-API-key live map — flutter_map with Esri World Imagery
+/// satellite tiles.
+///
+/// Was OpenStreetMap street tiles; switched to Esri's free World Imagery
+/// service for a satellite look (closer to what "Google Maps satellite
+/// view" looks like) without needing a Google Cloud billing account —
+/// Google requires billing to be enabled before it will even issue a
+/// Maps API key, satellite tiles or not. Esri's World Imagery tile
+/// service works with a plain URL, no key, for this kind of light usage.
+/// Their terms do require visible attribution, hence the
+/// RichAttributionWidget below — don't remove it.
 ///
 /// Shows the current user's position always, and a responder's position
 /// once available (SOS accepted). Auto-fits bounds to keep both markers visible.
@@ -45,27 +55,11 @@ class LiveMap extends StatelessWidget {
         ? ll.LatLng(otherLat!, otherLng!)
         : null;
 
-    // Genuinely happens, not just a rare edge case: whenever a responder's
-    // own GPS hasn't resolved yet, tanod/police alert-detail screens fall
-    // back to using the ALERT's own coordinates as their placeholder "self"
-    // position (see e.g. PoliceAlertDetailScreen's
-    // `selfLat: _myPosition?.latitude ?? alert.lat ?? 0`) — meaning self
-    // and other can briefly be the exact same point. It's also just what a
-    // responder having genuinely arrived looks like. Either way,
-    // LatLngBounds.fromPoints on two identical points is a zero-area box,
-    // and flutter_map's CameraFit.bounds() does a zoom calculation on that
-    // box involving a division that produces NaN internally, crashing with
-    // "Unsupported operation: NaN" — not a null/missing-data problem, a
-    // math-on-a-degenerate-box problem. Guard by only fitting bounds when
-    // the two points are meaningfully apart; a same-point (or no-other)
-    // case just centers on self at the normal initial zoom instead.
     const samePointThreshold = 0.00005; // ~5 meters at this latitude
     final samePoint = other != null &&
         (self.latitude - other.latitude).abs() < samePointThreshold &&
         (self.longitude - other.longitude).abs() < samePointThreshold;
 
-    // FIX:
-    // LatLngBounds comes from flutter_map, so don't use ll.LatLngBounds.
     final bounds = (other != null && !samePoint) ? LatLngBounds.fromPoints([self, other]) : null;
 
     return ClipRRect(
@@ -74,8 +68,6 @@ class LiveMap extends StatelessWidget {
         options: MapOptions(
           initialCenter: self,
           initialZoom: 15,
-
-          // Automatically fit both markers when a responder exists.
           initialCameraFit: bounds != null
               ? CameraFit.bounds(
                   bounds: bounds,
@@ -87,7 +79,7 @@ class LiveMap extends StatelessWidget {
         children: [
           TileLayer(
             urlTemplate:
-                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             userAgentPackageName:
                 'com.baranggaycaminonuevo.bantay_nuevo',
           ),
@@ -142,6 +134,15 @@ class LiveMap extends StatelessWidget {
                     icon: Icons.shield,
                   ),
                 ),
+            ],
+          ),
+                 RichAttributionWidget(
+            alignment: AttributionAlignment.bottomRight,
+            popupInitialDisplayDuration: const Duration(seconds: 3),
+            attributions: [
+              TextSourceAttribution(
+                'Esri, Maxar, Earthstar Geographics',
+              ),
             ],
           ),
         ],
