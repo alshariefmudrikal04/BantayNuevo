@@ -131,6 +131,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
         facePhotoBytes: faceBytes,
         facePhotoFilename: _facePhotoName ?? 'face_photo.jpg',
       );
+      if (!mounted) return;
+      // Explicit confirmation before handing back to AuthGate — previously
+      // this popped straight to VerificationPendingScreen with no moment
+      // of "yes, that went through," which read as the app just quietly
+      // doing something (or nothing) after a long submit.
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          backgroundColor: LuxColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Account submitted', style: LuxType.heading(fontSize: 16)),
+          content: Text(
+            'A barangay admin will review your ID and photo. You\'ll get a text and email once your '
+            'account is approved or rejected.',
+            style: LuxType.body(fontSize: 13, color: LuxColors.inkSoft),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Got it', style: LuxType.heading(fontSize: 13, color: LuxColors.red)),
+            ),
+          ],
+        ),
+      );
       // AuthGate (core/router/app_router.dart) already picked up the new
       // signed-in user in the background — but RegisterScreen was pushed
       // on top of it, so we need to pop back to root ourselves for that

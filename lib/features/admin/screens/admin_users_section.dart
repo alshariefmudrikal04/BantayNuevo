@@ -90,6 +90,18 @@ class _AdminUsersSectionState extends State<AdminUsersSection> {
       stream: _repository.streamAllUsers(),
       builder: (context, snapshot) {
         var users = snapshot.data ?? [];
+        // "All accounts" is meant to be genuinely manageable accounts — a
+        // rejected (or still pending) resident was never actually approved
+        // to use the app, so showing them here next to real accounts, with
+        // a working activate/deactivate toggle and role-change button,
+        // made a rejected registration look like it had quietly become a
+        // real account anyway. Their record still exists in Firestore
+        // (VerificationPendingScreen needs it to show the resident their
+        // own status) — it just doesn't belong in this list. Tanod/police/
+        // admin accounts default to `approved` the moment they're created
+        // (see UserModel's default), so this only ever filters out
+        // residents still going through registration review.
+        users = users.where((u) => u.verificationStatus == VerificationStatus.approved).toList();
         if (_roleFilter != null) users = users.where((u) => u.role == _roleFilter).toList();
 
         return Padding(

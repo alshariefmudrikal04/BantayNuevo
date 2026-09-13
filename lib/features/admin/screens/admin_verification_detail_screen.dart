@@ -33,7 +33,11 @@ class _AdminVerificationDetailScreenState extends State<AdminVerificationDetailS
   Future<void> _approve() async {
     setState(() => _busy = true);
     try {
-      await _repository.approveVerification(widget.resident);
+      final result = await _repository.approveVerification(widget.resident);
+      if (!mounted) return;
+      if (!result.allSent) {
+        await _warnNotificationFailed(result);
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       _showSnack('Could not approve: $e', isError: true);
@@ -47,12 +51,42 @@ class _AdminVerificationDetailScreenState extends State<AdminVerificationDetailS
 
     setState(() => _busy = true);
     try {
-      await _repository.rejectVerification(widget.resident, reason.trim());
+      final result = await _repository.rejectVerification(widget.resident, reason.trim());
+      if (!mounted) return;
+      if (!result.allSent) {
+        await _warnNotificationFailed(result);
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       _showSnack('Could not reject: $e', isError: true);
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Shown before popping back to the queue whenever the email or SMS
+  /// notification didn't actually go out. Deliberately a blocking dialog
+  /// rather than a SnackBar: a SnackBar fired right before Navigator.pop()
+  /// is easy to miss entirely, and this is the one moment the admin can
+  /// still act on it (calling the resident directly) before the queue
+  /// entry disappears.
+  Future<void> _warnNotificationFailed(VerificationNotificationResult result) {
+    final missing = [
+      if (!result.emailSent) 'email',
+      if (!result.smsSent) 'text message',
+    ].join(' and ');
+    return showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Decision saved'),
+        content: Text(
+          'The $missing to ${widget.resident.name} could not be sent. The decision itself was saved — '
+          'consider letting them know directly (call, or in person) so they\'re not left waiting.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK')),
+        ],
+      ),
+    );
   }
 
   @override

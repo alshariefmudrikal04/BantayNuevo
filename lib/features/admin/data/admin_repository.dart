@@ -12,6 +12,20 @@ import '../../../models/sos_alert_model.dart';
 import '../../../models/user_model.dart';
 import '../../resident/data/notification_repository.dart';
 
+/// Whether the approve/reject decision's email and SMS notifications
+/// actually went out. The Firestore decision itself always succeeds or
+/// throws on its own — this is purely about the best-effort notification
+/// layer on top of it, so the calling screen can warn the admin when a
+/// resident won't have heard anything, instead of that failing invisibly.
+class VerificationNotificationResult {
+  const VerificationNotificationResult({required this.emailSent, required this.smsSent});
+
+  final bool emailSent;
+  final bool smsSent;
+
+  bool get allSent => emailSent && smsSent;
+}
+
 /// Data layer for the Barangay Admin dashboard (Prompt 14). Unlike the
 /// resident/tanod repositories, admin genuinely needs full-collection
 /// visibility across users, reports, and sos_alerts — that's the whole
@@ -111,20 +125,26 @@ class AdminRepository {
         .map((snap) => snap.docs.map((d) => UserModel.fromFirestore(d.data(), d.id)).toList());
   }
 
-  Future<void> approveVerification(UserModel resident) async {
+  Future<VerificationNotificationResult> approveVerification(UserModel resident) async {
     await _users.doc(resident.uid).update({
       'verificationStatus': VerificationStatus.approved.value,
       'rejectionReason': FieldValue.delete(),
     });
     // Notifications are best-effort from here on — the decision itself
     // (the write above) already succeeded. A failed email/SMS send
-    // (e.g. the `mail` collection's Firestore rule not yet deployed, or
-    // a PhilSMS hiccup) must never bubble up and make the admin think
-    // the APPROVAL failed when it didn't; that's what was actually
-    // happening before this fix, and could send an admin down a
-    // confusing path re-clicking Approve on an already-approved account.
+    // (e.g. an EmailJS misconfiguration, or a PhilSMS hiccup) must never
+    // bubble up and make the admin think the APPROVAL failed when it
+    // didn't. But previously the actual send result was discarded
+    // entirely — _sendVerificationEmail returned Future<void>, silently
+    // dropping the bool EmailService.send() actually resolves with — so a
+    // failed send looked identical to a successful one from here on. Both
+    // results are now captured and handed back so the calling screen can
+    // tell the admin when a notification didn't go out, instead of them
+    // only finding out when the resident calls asking why they heard
+    // nothing.
+    bool emailSent = false;
     try {
-      await _sendVerificationEmail(
+      emailSent = await _sendVerificationEmail(
         resident,
         subject: 'Your Bantay Nuevo account is verified',
         body:
@@ -134,31 +154,33 @@ class AdminRepository {
     } catch (_) {
       // Swallowed on purpose — see comment above.
     }
+    var smsSent = true; // vacuously true when there's no phone to notify
     if (resident.phone.isNotEmpty) {
+      smsSent = false;
       try {
-        await PhilSmsService.sendSms(
+        smsSent = await PhilSmsService.sendSms(
           numbers: [resident.phone],
           message: '[Bantay Nuevo] Hi ${resident.name}, your account is now verified. You can log in and use the app, including SOS.',
         );
       } catch (_) {
-        // Swallowed on purpose — see comment above. PhilSmsService already
-        // fails silently internally, but this guards against any future
-        // change to it (or to _sendVerificationEmail above) reintroducing
-        // a throw here.
+        // Swallowed on purpose — see comment above.
       }
     }
+    return VerificationNotificationResult(emailSent: emailSent, smsSent: smsSent);
   }
 
-  Future<void> rejectVerification(UserModel resident, String reason) async {
+  Future<VerificationNotificationResult> rejectVerification(UserModel resident, String reason) async {
     await _users.doc(resident.uid).update({
       'verificationStatus': VerificationStatus.rejected.value,
       'rejectionReason': reason,
     });
     // Same reasoning as approveVerification above — the decision (the
     // write above) already succeeded; notification failures must not be
-    // reported back as if the rejection itself failed.
+    // reported back as if the rejection itself failed, but they do need
+    // to be surfaced to the admin, not silently dropped.
+    bool emailSent = false;
     try {
-      await _sendVerificationEmail(
+      emailSent = await _sendVerificationEmail(
         resident,
         subject: 'Your Bantay Nuevo account could not be verified',
         body:
@@ -169,9 +191,11 @@ class AdminRepository {
     } catch (_) {
       // Swallowed on purpose — see comment above.
     }
+    var smsSent = true; // vacuously true when there's no phone to notify
     if (resident.phone.isNotEmpty) {
+      smsSent = false;
       try {
-        await PhilSmsService.sendSms(
+        smsSent = await PhilSmsService.sendSms(
           numbers: [resident.phone],
           message: '[Bantay Nuevo] Hi ${resident.name}, your account could not be verified. Reason: $reason. Please visit the barangay hall.',
         );
@@ -179,6 +203,7 @@ class AdminRepository {
         // Swallowed on purpose — see comment above.
       }
     }
+    return VerificationNotificationResult(emailSent: emailSent, smsSent: smsSent);
   }
 
   /// Sends via EmailJS (see EmailService/emailjs_config.dart) — a
@@ -189,7 +214,14 @@ class AdminRepository {
   /// as everything else Cloud-Functions-based in this project — a dead
   /// end once it turned out Blaze wasn't available. EmailJS's own free
   /// tier and client-side design sidesteps that entirely.
-  Future<void> _sendVerificationEmail(UserModel resident, {required String subject, required String body}) {
+  ///
+  /// Returns whether the send actually succeeded — this used to be typed
+  /// Future<void>, which quietly discarded the bool EmailService.send()
+  /// resolves with (Dart allows returning a Future<bool> in a Future<void>
+  /// position), which is exactly how a failed rejection email could go
+  /// unnoticed: the call "succeeded" as far as the caller could tell no
+  /// matter what EmailJS actually did with it.
+  Future<bool> _sendVerificationEmail(UserModel resident, {required String subject, required String body}) {
     return EmailService.send(to: resident.email, subject: subject, body: body);
   }
 

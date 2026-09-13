@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import '../config/emailjs_config.dart';
 
@@ -34,8 +35,17 @@ class EmailService {
           )
           .timeout(const Duration(seconds: 15));
 
-      return response.statusCode >= 200 && response.statusCode < 300;
-    } catch (_) {
+      if (response.statusCode >= 200 && response.statusCode < 300) return true;
+
+      // Previously this just returned false with nothing else — meaning a
+      // misconfigured EmailJS template, an expired private key, or a
+      // hit rate limit all looked identical to "app is offline" from the
+      // caller's side, with zero way to tell them apart. This at least
+      // surfaces the real reason in the debug console during testing.
+      debugPrint('EmailService: send failed (${response.statusCode}): ${response.body}');
+      return false;
+    } catch (e) {
+      debugPrint('EmailService: send threw: $e');
       return false;
     }
   }
