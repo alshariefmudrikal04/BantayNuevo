@@ -5,8 +5,8 @@ import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/verification_pending_screen.dart';
 import '../../features/resident/screens/resident_shell_screen.dart';
 import '../../features/tanod/screens/tanod_home_screen.dart';
+import '../../features/police/screens/police_home_screen.dart';
 import '../../features/admin/screens/admin_home_screen.dart';
-import '../widgets/coming_soon_screen.dart';
 
 /// Root auth/role gate. Listens to AuthRepository.authStateChanges and shows:
 /// - LoginScreen when signed out — a single form, no role picker; whoever
@@ -48,11 +48,7 @@ class AuthGate extends StatelessWidget {
           // (report review, etc.) once its UI reference is provided —
           // for now this is SOS response only.
           UserRole.tanod => TanodHomeScreen(user: user),
-          // TODO(Prompt 9+): replace with the real PoliceDashboardScreen.
-          UserRole.police => ComingSoonScreen(
-              roleLabel: 'Police',
-              onLogout: authRepository.logout,
-            ),
+          UserRole.police => PoliceHomeScreen(user: user),
           // Prompt 14 — Barangay Admin PC/web dashboard.
           UserRole.admin => AdminHomeScreen(user: user),
         };

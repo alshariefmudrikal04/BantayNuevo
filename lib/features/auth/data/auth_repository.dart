@@ -91,12 +91,6 @@ class AuthRepository {
     });
   }
 
-  Future<UserModel?> _fetchUserModel(String uid) async {
-    final doc = await _users.doc(uid).get();
-    if (!doc.exists) return null;
-    return UserModel.fromFirestore(doc.data()!, uid);
-  }
-
   /// Residents are the only self-registering role now — tanod/police/admin
   /// accounts are created by an existing admin (AdminRepository.createStaffAccount),
   /// which is itself the vetting step for those roles. A resident instead
@@ -175,22 +169,29 @@ class AuthRepository {
     }
   }
 
-  Future<UserModel> login({
+  /// Signs in and returns as soon as Firebase Auth confirms the
+  /// credentials — it deliberately does NOT also do its own Firestore
+  /// read of users/{uid} afterwards. That used to be here (a one-time
+  /// `.get()` right after signInWithEmailAndPassword, mirroring the same
+  /// pattern that caused the "stuck after registering" bug described
+  /// above), and it caused login to hang indefinitely: a one-time get()
+  /// issued the instant sign-in succeeds can stall before the new
+  /// session is fully propagated, so the button's spinner would run
+  /// forever even though the sign-in itself had already gone through.
+  ///
+  /// AuthGate's `authStateChanges` (above) already does the equivalent
+  /// check with a live `.snapshots()` listener and safely falls back to
+  /// LoginScreen if users/{uid} doesn't exist, so re-checking it here
+  /// was both redundant and the actual source of the hang.
+  Future<void> login({
     required String email,
     required String password,
   }) async {
-    final credential = await _auth.signInWithEmailAndPassword(
+    await _auth.signInWithEmailAndPassword(
       email: email,
       password: password,
     );
-    final user = await _fetchUserModel(credential.user!.uid);
-    if (user == null) {
-      throw StateError(
-        'Signed in but no matching users/{uid} document found — '
-        'this account was never fully registered.',
-      );
-    }
-    return user;
+    // Nothing else to do — AuthGate's live listener takes it from here.
   }
 
   Future<void> logout() => _auth.signOut();
