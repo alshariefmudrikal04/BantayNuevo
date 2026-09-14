@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Needed by: geolocator (Prompt 3 report form GPS auto-capture, Prompt 4 SOS location) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -26,6 +27,17 @@
     <!-- Needed by: local_auth (Prompt 7 security screen — biometric unlock) -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Needed by: flutter_background_service (BackgroundAlertService) —
+         keeps a tanod's SOS listener running with the app closed, in
+         place of a Cloud Functions/FCM push this project doesn't run
+         (no Blaze plan). FOREGROUND_SERVICE_DATA_SYNC is the closest
+         official Android 14+ (API 34) foreground-service type to "long-
+         running network listener"; Android requires every foreground
+         service to declare one. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Needed by: url_launcher (offline SOS sms: link in sos_screen.dart,
          hotline tel: dialing in resources_screen.dart, opening evidence
@@ -79,5 +91,23 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- flutter_background_service's own service declaration, with an
+             explicit foregroundServiceType — Android 14+ (API 34) requires
+             this on every foreground service and the plugin doesn't always
+             set the one you want by default. tools:replace is needed here
+             because the plugin's own bundled manifest already declares
+             android:exported="true" for this same service, which otherwise
+             conflicts with our android:exported="false" at build time. If
+             a manifest-merge conflict comes up again on a future plugin
+             update, check this project's installed flutter_background_service
+             version's README for its exact expected override — the service
+             class name below has been stable across recent versions but
+             isn't guaranteed forever. -->
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false"
+            tools:replace="android:exported" />
     </application>
 </manifest>

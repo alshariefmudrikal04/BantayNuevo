@@ -8,6 +8,8 @@ import '../../../models/notification_model.dart';
 import '../../../core/theme/lux_theme.dart';
 import '../../../core/widgets/live_map.dart';
 import '../../../core/services/alarm_sound_service.dart';
+import '../../../core/services/background_alert_service.dart';
+import '../../../core/services/fcm_service.dart';
 import '../data/tanod_sos_repository.dart';
 import '../data/tanod_report_repository.dart';
 import '../../resident/data/notification_repository.dart';
@@ -53,12 +55,26 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
     super.initState();
     _alarmSubscription = _alertsStream.listen(_checkForNewAlerts);
     _loadCurrentLocation();
+    // Tanod/police were never being asked for notification permission —
+    // only resident_home_screen called this. Without it, Android 13+
+    // silently blocks all notifications (including the background SOS
+    // alert sound/vibration below) until the user explicitly grants it.
+    FcmService.registerToken(widget.user.uid);
+    // Keeps alerting even if this tanod closes the app entirely — see
+    // BackgroundAlertService's doc comment for why this exists instead
+    // of a server push.
+    BackgroundAlertService.start();
   }
 
   @override
   void dispose() {
     _alarmSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _logout() async {
+    await BackgroundAlertService.stop();
+    await _authRepository.logout();
   }
 
   void _checkForNewAlerts(List<SosAlertModel> alerts) {
@@ -166,7 +182,7 @@ class _TanodHomeScreenState extends State<TanodHomeScreen> {
           IconButton(
             icon: const Icon(Icons.logout, size: 20, color: LuxColors.black),
             tooltip: 'Log out',
-            onPressed: _authRepository.logout,
+            onPressed: _logout,
           ),
           const SizedBox(width: 4),
         ],

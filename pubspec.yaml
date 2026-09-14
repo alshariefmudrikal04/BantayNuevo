@@ -21,6 +21,21 @@ dependencies:
   http: ^1.2.2  # TEMPORARY — Cloudinary evidence upload (demo purposes, no Blaze card needed)
   firebase_messaging: ^15.1.3
 
+  # Background/closed-app SOS push — creates the Android notification
+  # channels below so a per-emergency-type sound + vibration pattern
+  # survives the app being fully closed (Android locks a channel's sound
+  # & vibration the moment it's first created — FCM can't override them
+  # per-message, only pick which pre-made channel to use). See
+  # core/services/push_channel_service.dart.
+  flutter_local_notifications: ^18.0.1
+
+  # Keeps a tanod's app alive in the background (a persistent "monitoring
+  # for alerts" notification, same trick music/GPS apps use) so the app's
+  # own SOS listener keeps running with the app closed — this project
+  # isn't on the Blaze plan, so there's no Cloud Functions/FCM push to
+  # rely on instead. See core/services/background_alert_service.dart.
+  flutter_background_service: ^5.0.10
+
   # State management
   flutter_riverpod: ^2.6.1
 

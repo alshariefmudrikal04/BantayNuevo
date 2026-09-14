@@ -4,6 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'app.dart';
+import 'core/services/push_channel_service.dart';
+import 'core/services/background_alert_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +17,16 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Must run before any SOS push can arrive — Android locks a channel's
+  // sound/vibration the moment it's first created, so these need to exist
+  // on the device before FCM ever tries to use them. See
+  // core/services/push_channel_service.dart for why.
+  await PushChannelService.setup();
+
+  // Registers the background service — doesn't start listening yet,
+  // that only happens once a tanod logs in (see TanodHomeScreen).
+  await BackgroundAlertService.initialize();
 
   // TEMPORARY — connects to the local Firebase emulator instead of live
   // production Firestore, so you can test onSosCreated without the Blaze
